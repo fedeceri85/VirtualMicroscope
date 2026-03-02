@@ -9,7 +9,8 @@
 export function framePath(pathPattern: string, zoomIndex: number, focusIndex: number): string {
   const zz = String(zoomIndex).padStart(2, '0')
   const fff = String(focusIndex).padStart(3, '0')
-  return pathPattern.replace('{ZZ}', zz).replace('{FFF}', fff)
+  const rel = pathPattern.replace('{ZZ}', zz).replace('{FFF}', fff)
+  return `${import.meta.env.BASE_URL}${rel}`
 }
 
 /**

@@ -17,7 +17,7 @@ export interface Manifest {
  * Fetch and validate the manifest from the public directory.
  * Throws on network error or invalid data.
  */
-export async function loadManifest(url = '/manifest.json'): Promise<Manifest> {
+export async function loadManifest(url = `${import.meta.env.BASE_URL}manifest.json`): Promise<Manifest> {
   const res = await fetch(url)
   if (!res.ok) {
     throw new Error(`Failed to fetch manifest: ${res.status} ${res.statusText}`)
