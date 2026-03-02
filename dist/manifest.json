@@ -1,0 +1,12 @@
+{
+  "zoomLevels": 50,
+  "zSlices": 50,
+  "width": 512,
+  "height": 512,
+  "format": "webp",
+  "pathPattern": "assets/zoom_{ZZ}/z_{FFF}.webp",
+  "labels": {
+    "zoomNames": [],
+    "objectiveNames": []
+  }
+}
