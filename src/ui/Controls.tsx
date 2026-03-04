@@ -30,7 +30,7 @@ function RotaryKnob({
   const ratio = (value - min) / range
   const angle = -135 + ratio * 270
 
-  const tickCount = Math.max(8, max - min + 1)
+  const tickCount = Math.max(8, Math.min(24, max - min + 1))
   const ticks = useMemo(() => {
     const arr: Array<{ active: boolean; angle: number }> = []
     for (let i = 0; i < tickCount; i++) {
@@ -131,14 +131,15 @@ function RotaryKnob({
 export default function Controls() {
   const setZoomAbsolute = useMicroscopeStore((s) => s.setZoomAbsolute)
   const setFocusAbsolute = useMicroscopeStore((s) => s.setFocusAbsolute)
+  const resetPan = useMicroscopeStore((s) => s.resetPan)
+  const panEnabled = useMicroscopeStore((s) => s.panEnabled)
+  const setPanEnabled = useMicroscopeStore((s) => s.setPanEnabled)
   const zoomIndex = useMicroscopeStore((s) => s.zoomIndex)
   const focusIndex = useMicroscopeStore((s) => s.focusIndex)
   const zoomLevels = useMicroscopeStore((s) => s.zoomLevels)
   const zSlices = useMicroscopeStore((s) => s.zSlices)
   const isLoading = useMicroscopeStore((s) => s.isLoading)
-  const [focusMode, setFocusMode] = useState<'fine' | 'coarse'>('fine')
-
-  const focusStep = focusMode === 'fine' ? 1 : 3
+  const focusStep = 1
 
   /* ---- Keyboard shortcuts ---- */
   useEffect(() => {
@@ -162,14 +163,26 @@ export default function Controls() {
           store.setZoom(1)
           break
         case 'w':
-        case 'ArrowUp':
-          e.preventDefault()
           store.setFocus(focusStep)
           break
         case 's':
+          store.setFocus(-focusStep)
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          if (store.panEnabled) store.nudgePan(0, -14)
+          break
         case 'ArrowDown':
           e.preventDefault()
-          store.setFocus(-focusStep)
+          if (store.panEnabled) store.nudgePan(0, 14)
+          break
+        case 'ArrowLeft':
+          e.preventDefault()
+          if (store.panEnabled) store.nudgePan(-14, 0)
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          if (store.panEnabled) store.nudgePan(14, 0)
           break
       }
     }
@@ -192,7 +205,6 @@ export default function Controls() {
             onChange={setZoomAbsolute}
             ariaLabel="Zoom knob (A/D or [ ])"
           />
-          <span className="index-label">{zoomIndex + 1} / {zoomLevels}</span>
         </div>
       </fieldset>
 
@@ -208,34 +220,32 @@ export default function Controls() {
             onChange={setFocusAbsolute}
             ariaLabel="Focus knob (W/S or ArrowUp/ArrowDown)"
           />
-          <span className="index-label">{focusIndex + 1} / {zSlices}</span>
-          <div className="mode-toggle" role="group" aria-label="Focus step mode">
-            <button
-              type="button"
-              className={focusMode === 'fine' ? 'active' : ''}
-              onClick={() => setFocusMode('fine')}
-            >
-              Fine
-            </button>
-            <button
-              type="button"
-              className={focusMode === 'coarse' ? 'active' : ''}
-              onClick={() => setFocusMode('coarse')}
-            >
-              Coarse
-            </button>
-          </div>
         </div>
       </fieldset>
 
-      <fieldset className="control-group mechanical auxiliary">
-        <legend>Drive Status</legend>
-        <div className="status-stack">
-          <span>Zoom: A/D or [ ]</span>
-          <span>Focus: W/S or ↑/↓</span>
-          {isLoading && <span className="loading-indicator">Loading frame…</span>}
+      <fieldset className="control-group pan-group">
+        <legend>FOV Translate</legend>
+        <div className="pan-controls">
+          <button
+            type="button"
+            className={`pan-toggle ${panEnabled ? 'active' : ''}`}
+            onClick={() => setPanEnabled(!panEnabled)}
+            aria-label="Enable arrow-key translation of field of view"
+          >
+            {panEnabled ? 'Arrows On' : 'Arrows Off'}
+          </button>
+          <button
+            type="button"
+            className="pan-reset"
+            onClick={resetPan}
+            aria-label="Reset field-of-view translation"
+          >
+            Center
+          </button>
         </div>
       </fieldset>
+
+      {isLoading && <span className="loading-indicator">Loading…</span>}
     </div>
   )
 }

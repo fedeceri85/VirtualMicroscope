@@ -39,8 +39,9 @@ export default function HelpModal({ open, onClose }: Props) {
           <tbody>
             <Row keys="A / [" action="Zoom out" />
             <Row keys="D / ]" action="Zoom in" />
-            <Row keys="W / ↑" action="Focus up" />
-            <Row keys="S / ↓" action="Focus down" />
+            <Row keys="W" action="Focus up" />
+            <Row keys="S" action="Focus down" />
+            <Row keys="← ↑ ↓ →" action="Translate FOV (when Arrows mode is ON)" />
             <Row keys="H" action="Toggle this help" />
           </tbody>
         </table>

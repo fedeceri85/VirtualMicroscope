@@ -19,6 +19,8 @@ const textureCache = new TextureLRU(100)
 async function loadAndSwap(
   zoom: number,
   focus: number,
+  panX: number,
+  panY: number,
   prevZoom: number,
   manifest: Manifest,
   sprite: Sprite,
@@ -28,7 +30,7 @@ async function loadAndSwap(
 
   const applyTexture = (tex: Texture) => {
     sprite.texture = tex
-    fitSprite(sprite, app)
+    fitSprite(sprite, app, panX, panY)
 
     // Transition
     if (zoom !== prevZoom) {
@@ -84,7 +86,7 @@ function triggerPrefetch(zoom: number, focus: number, manifest: Manifest) {
 }
 
 /** Scale + center the sprite to fit the application screen. */
-function fitSprite(sprite: Sprite, app: Application) {
+function fitSprite(sprite: Sprite, app: Application, panX: number = 0, panY: number = 0) {
   const tex = sprite.texture
   if (!tex || tex === Texture.EMPTY) return
 
@@ -96,8 +98,8 @@ function fitSprite(sprite: Sprite, app: Application) {
   const scale = Math.min(cw / tw, ch / th)
   sprite.width = tw * scale
   sprite.height = th * scale
-  sprite.x = cw / 2
-  sprite.y = ch / 2
+  sprite.x = cw / 2 + panX
+  sprite.y = ch / 2 + panY
 }
 
 /** Redraw overlay graphics when canvas resizes */
@@ -138,6 +140,8 @@ export default function PixiStage({ manifest }: Props) {
   const focusIndex = useMicroscopeStore((s) => s.focusIndex)
   const showReticle = useMicroscopeStore((s) => s.showReticle)
   const showVignette = useMicroscopeStore((s) => s.showVignette)
+  const panX = useMicroscopeStore((s) => s.panX)
+  const panY = useMicroscopeStore((s) => s.panY)
 
   /* ---------- Pixi init (runs once) ---------- */
   useEffect(() => {
@@ -182,7 +186,7 @@ export default function PixiStage({ manifest }: Props) {
         if (readyRef.current) {
           redrawOverlays(reticle, vignette, app)
           redrawFovMask(fovMask, app)
-          fitSprite(sprite, app)
+          fitSprite(sprite, app, useMicroscopeStore.getState().panX, useMicroscopeStore.getState().panY)
         }
       })
       ro.observe(container)
@@ -196,7 +200,16 @@ export default function PixiStage({ manifest }: Props) {
 
       // Load the initial frame
       const { zoomIndex: z, focusIndex: f } = useMicroscopeStore.getState()
-      loadAndSwap(z, f, z, manifestRef.current, sprite, app)
+      loadAndSwap(
+        z,
+        f,
+        useMicroscopeStore.getState().panX,
+        useMicroscopeStore.getState().panY,
+        z,
+        manifestRef.current,
+        sprite,
+        app,
+      )
     })()
 
     return () => {
@@ -221,12 +234,19 @@ export default function PixiStage({ manifest }: Props) {
     loadAndSwap(
       zoomIndex,
       focusIndex,
+      panX,
+      panY,
       prevZoom,
       manifestRef.current,
       spriteRef.current!,
       appRef.current!,
     )
   }, [zoomIndex, focusIndex])
+
+  useEffect(() => {
+    if (!readyRef.current || !spriteRef.current || !appRef.current) return
+    fitSprite(spriteRef.current, appRef.current, panX, panY)
+  }, [panX, panY])
 
   /* ---------- Toggle overlays ---------- */
   useEffect(() => {

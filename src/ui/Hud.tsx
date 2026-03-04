@@ -11,18 +11,13 @@ function getObjectiveLabel(zoomIndex: number, zoomLevels: number): string {
 
 export default function Hud() {
   const zoomIndex = useMicroscopeStore((s) => s.zoomIndex)
-  const focusIndex = useMicroscopeStore((s) => s.focusIndex)
   const zoomLevels = useMicroscopeStore((s) => s.zoomLevels)
-  const zSlices = useMicroscopeStore((s) => s.zSlices)
   const isLoading = useMicroscopeStore((s) => s.isLoading)
   const objective = getObjectiveLabel(zoomIndex, zoomLevels)
 
   return (
     <div className="hud" aria-live="polite">
       <span className="hud-chip">Objective {objective}</span>
-      <span className="hud-sep" />
-      <span className="hud-readout">Zoom {zoomIndex + 1}/{zoomLevels}</span>
-      <span className="hud-readout">Focus {focusIndex + 1}/{zSlices}</span>
       {isLoading && <span className="hud-loading">⏳</span>}
     </div>
   )

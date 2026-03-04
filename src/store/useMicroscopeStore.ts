@@ -6,6 +6,9 @@ interface MicroscopeState {
   focusIndex: number
   zoomLevels: number
   zSlices: number
+  panX: number
+  panY: number
+  panEnabled: boolean
 
   /* ---- UI toggles ---- */
   showReticle: boolean
@@ -19,6 +22,9 @@ interface MicroscopeState {
   setFocus: (delta: number) => void
   setZoomAbsolute: (index: number) => void
   setFocusAbsolute: (index: number) => void
+  nudgePan: (dx: number, dy: number) => void
+  resetPan: () => void
+  setPanEnabled: (enabled: boolean) => void
   toggleReticle: () => void
   toggleVignette: () => void
   setLoading: (v: boolean) => void
@@ -30,13 +36,16 @@ export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
   focusIndex: 0,
   zoomLevels: 1,
   zSlices: 1,
+  panX: 0,
+  panY: 0,
+  panEnabled: false,
   showReticle: false,
   showVignette: false,
   isLoading: false,
   error: undefined,
 
   init: (zoomLevels, zSlices) =>
-    set({ zoomLevels, zSlices, zoomIndex: 0, focusIndex: 0 }),
+    set({ zoomLevels, zSlices, zoomIndex: 0, focusIndex: 0, panX: 0, panY: 0, panEnabled: false }),
 
   setZoom: (delta) => {
     const { zoomIndex, zoomLevels } = get()
@@ -59,6 +68,18 @@ export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
     const { zSlices } = get()
     set({ focusIndex: Math.max(0, Math.min(zSlices - 1, index)) })
   },
+
+  nudgePan: (dx, dy) => {
+    const { panX, panY } = get()
+    const PAN_LIMIT = 180
+    set({
+      panX: Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, panX + dx)),
+      panY: Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, panY + dy)),
+    })
+  },
+
+  resetPan: () => set({ panX: 0, panY: 0 }),
+  setPanEnabled: (panEnabled) => set({ panEnabled }),
 
   toggleReticle: () => set((s) => ({ showReticle: !s.showReticle })),
   toggleVignette: () => set((s) => ({ showVignette: !s.showVignette })),
