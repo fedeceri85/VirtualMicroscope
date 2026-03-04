@@ -42,6 +42,10 @@ export default function HelpModal({ open, onClose }: Props) {
             <Row keys="W" action="Focus up" />
             <Row keys="S" action="Focus down" />
             <Row keys="← ↑ ↓ →" action="Translate FOV (when Arrows mode is ON)" />
+            <Row keys="Gamepad D-Pad / L-Stick" action="Zoom & focus" />
+            <Row keys="Gamepad R-Stick" action="Translate FOV (when Arrows mode is ON)" />
+            <Row keys="A / Cross" action="Toggle Arrows mode" />
+            <Row keys="B / Circle" action="Center FOV" />
             <Row keys="H" action="Toggle this help" />
           </tbody>
         </table>

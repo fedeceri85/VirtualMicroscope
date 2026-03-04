@@ -246,6 +246,18 @@ body,
   text-transform: uppercase;
 }
 
+.controller-indicator {
+  color: #d6f5dc;
+  background: rgba(30, 88, 49, 0.35);
+  border: 1px solid rgba(84, 170, 106, 0.55);
+  border-radius: 999px;
+  padding: 0.24rem 0.55rem;
+  font-size: 0.69rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .pan-controls {
   display: flex;
   flex-direction: column;

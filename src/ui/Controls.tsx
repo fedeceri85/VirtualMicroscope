@@ -140,6 +140,7 @@ export default function Controls() {
   const zSlices = useMicroscopeStore((s) => s.zSlices)
   const isLoading = useMicroscopeStore((s) => s.isLoading)
   const focusStep = 1
+  const [controllerConnected, setControllerConnected] = useState(false)
 
   /* ---- Keyboard shortcuts ---- */
   useEffect(() => {
@@ -190,6 +191,112 @@ export default function Controls() {
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [focusStep])
+
+  /* ---- External gamepad support (Xbox / PlayStation style) ---- */
+  useEffect(() => {
+    const DEADZONE = 0.55
+    const REPEAT_MS = 120
+    const PAN_STEP = 12
+    const actionTimestamps: Record<string, number> = {
+      zoomMinus: 0,
+      zoomPlus: 0,
+      focusPlus: 0,
+      focusMinus: 0,
+      panLeft: 0,
+      panRight: 0,
+      panUp: 0,
+      panDown: 0,
+    }
+
+    let prevTogglePanPressed = false
+    let prevResetPanPressed = false
+    let lastConnected = false
+    let rafId = 0
+
+    const shouldRepeat = (name: keyof typeof actionTimestamps, active: boolean, now: number): boolean => {
+      if (!active) {
+        actionTimestamps[name] = 0
+        return false
+      }
+      if (now - actionTimestamps[name] >= REPEAT_MS) {
+        actionTimestamps[name] = now
+        return true
+      }
+      return false
+    }
+
+    const loop = () => {
+      const gamepads = navigator.getGamepads?.() ?? []
+      const gamepad = gamepads.find((g): g is Gamepad => Boolean(g && g.connected))
+      const connected = Boolean(gamepad)
+      if (connected !== lastConnected) {
+        lastConnected = connected
+        setControllerConnected(connected)
+      }
+
+      if (gamepad) {
+        const store = useMicroscopeStore.getState()
+        const now = performance.now()
+
+        const axisX = gamepad.axes[0] ?? 0
+        const axisY = gamepad.axes[1] ?? 0
+        const panAxisX = gamepad.axes[2] ?? 0
+        const panAxisY = gamepad.axes[3] ?? 0
+
+        const dpadUp = gamepad.buttons[12]?.pressed ?? false
+        const dpadDown = gamepad.buttons[13]?.pressed ?? false
+        const dpadLeft = gamepad.buttons[14]?.pressed ?? false
+        const dpadRight = gamepad.buttons[15]?.pressed ?? false
+
+        const l1 = gamepad.buttons[4]?.pressed ?? false
+        const r1 = gamepad.buttons[5]?.pressed ?? false
+        const l2 = (gamepad.buttons[6]?.value ?? 0) > 0.5
+        const r2 = (gamepad.buttons[7]?.value ?? 0) > 0.5
+
+        const togglePanPressed = gamepad.buttons[0]?.pressed ?? false // A / Cross
+        const resetPanPressed = gamepad.buttons[1]?.pressed ?? false // B / Circle
+
+        if (togglePanPressed && !prevTogglePanPressed) {
+          store.setPanEnabled(!store.panEnabled)
+        }
+        if (resetPanPressed && !prevResetPanPressed) {
+          store.resetPan()
+        }
+        prevTogglePanPressed = togglePanPressed
+        prevResetPanPressed = resetPanPressed
+
+        const zoomMinus = dpadLeft || axisX < -DEADZONE || l1
+        const zoomPlus = dpadRight || axisX > DEADZONE || r1
+        const focusPlusInput = dpadUp || axisY < -DEADZONE || l2
+        const focusMinusInput = dpadDown || axisY > DEADZONE || r2
+
+        if (shouldRepeat('zoomMinus', zoomMinus, now)) store.setZoom(-1)
+        if (shouldRepeat('zoomPlus', zoomPlus, now)) store.setZoom(1)
+        if (shouldRepeat('focusPlus', focusPlusInput, now)) store.setFocus(1)
+        if (shouldRepeat('focusMinus', focusMinusInput, now)) store.setFocus(-1)
+
+        if (store.panEnabled) {
+          const panLeft = panAxisX < -DEADZONE
+          const panRight = panAxisX > DEADZONE
+          const panUp = panAxisY < -DEADZONE
+          const panDown = panAxisY > DEADZONE
+
+          if (shouldRepeat('panLeft', panLeft, now)) store.nudgePan(-PAN_STEP, 0)
+          if (shouldRepeat('panRight', panRight, now)) store.nudgePan(PAN_STEP, 0)
+          if (shouldRepeat('panUp', panUp, now)) store.nudgePan(0, -PAN_STEP)
+          if (shouldRepeat('panDown', panDown, now)) store.nudgePan(0, PAN_STEP)
+        }
+      } else {
+        prevTogglePanPressed = false
+        prevResetPanPressed = false
+      }
+
+      rafId = window.requestAnimationFrame(loop)
+    }
+
+    rafId = window.requestAnimationFrame(loop)
+    return () => window.cancelAnimationFrame(rafId)
+  }, [])
 
   return (
     <div className="controls-bar">
@@ -245,6 +352,7 @@ export default function Controls() {
         </div>
       </fieldset>
 
+      {controllerConnected && <span className="controller-indicator">🎮 Controller connected</span>}
       {isLoading && <span className="loading-indicator">Loading…</span>}
     </div>
   )
