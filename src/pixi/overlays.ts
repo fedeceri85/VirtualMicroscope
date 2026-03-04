@@ -1,5 +1,7 @@
 import { Graphics, type Application } from 'pixi.js'
 
+export const VIGNETTE_RADIUS_FACTOR = 0.5
+
 /* ------------------------------------------------------------------ */
 /*  Reticle (crosshair)                                                */
 /* ------------------------------------------------------------------ */
@@ -55,22 +57,11 @@ export function drawVignette(g: Graphics, app: Application): void {
   const { width: w, height: h } = app.screen
   const cx = w / 2
   const cy = h / 2
-  const r = Math.min(w, h) * 0.48
-
-  // Draw an opaque rect covering the whole screen, then cut a circle
-  // Outer rect (clockwise)
-  g.beginPath()
-  g.rect(0, 0, w, h)
-  g.closePath()
-
-  // Inner circle (counter-clockwise — acts as a hole)
-  g.beginPath()
-  g.circle(cx, cy, r)
-  g.closePath()
-
-  g.fill({ color: 0x000000, alpha: 0.7 })
+  const r = Math.min(w, h) * VIGNETTE_RADIUS_FACTOR
 
   // Soft inner ring for a subtle eyepiece feel
+  g.setStrokeStyle({ width: 6, color: 0x000000, alpha: 0.35 })
+  g.circle(cx, cy, r + 2).stroke()
   g.setStrokeStyle({ width: 3, color: 0x333333, alpha: 0.9 })
   g.circle(cx, cy, r).stroke()
 }

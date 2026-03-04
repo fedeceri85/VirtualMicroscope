@@ -4,7 +4,7 @@ import { useMicroscopeStore } from '../store/useMicroscopeStore'
 import { framePath, frameKey } from '../lib/path'
 import { TextureLRU, loadTexture } from '../lib/lru'
 import { prefetchNeighbours } from '../lib/prefetch'
-import { createReticle, drawReticle, createVignette, drawVignette } from './overlays'
+import { createReticle, drawReticle, createVignette, drawVignette, VIGNETTE_RADIUS_FACTOR } from './overlays'
 import { animateZoomTransition, animateFocusTransition } from './transitions'
 import type { Manifest } from '../lib/manifest'
 
@@ -32,7 +32,7 @@ async function loadAndSwap(
 
     // Transition
     if (zoom !== prevZoom) {
-      animateZoomTransition(sprite, sprite.scale.x, sprite.scale.y)
+      animateZoomTransition(sprite)
     } else {
       animateFocusTransition(sprite)
     }
@@ -106,6 +106,13 @@ function redrawOverlays(reticle: Graphics, vignette: Graphics, app: Application)
   drawVignette(vignette, app)
 }
 
+function redrawFovMask(mask: Graphics, app: Application) {
+  mask.clear()
+  const { width: w, height: h } = app.screen
+  const r = Math.min(w, h) * VIGNETTE_RADIUS_FACTOR
+  mask.circle(w / 2, h / 2, r).fill({ color: 0xffffff, alpha: 1 })
+}
+
 /* ------------------------------------------------------------------ */
 /*  React component                                                    */
 /* ------------------------------------------------------------------ */
@@ -120,6 +127,7 @@ export default function PixiStage({ manifest }: Props) {
   const spriteRef = useRef<Sprite | null>(null)
   const reticleRef = useRef<Graphics | null>(null)
   const vignetteRef = useRef<Graphics | null>(null)
+  const fovMaskRef = useRef<Graphics | null>(null)
   const readyRef = useRef(false)
   const prevZoomRef = useRef(0)
 
@@ -139,7 +147,7 @@ export default function PixiStage({ manifest }: Props) {
 
     ;(async () => {
       await app.init({
-        background: 0x111111,
+        backgroundAlpha: 0,
         resizeTo: container,
       })
       if (cancelled) {
@@ -159,6 +167,13 @@ export default function PixiStage({ manifest }: Props) {
       const vignette = createVignette()
       app.stage.addChild(vignette)
 
+      const fovMask = new Graphics()
+      fovMask.label = 'fov-mask'
+      redrawFovMask(fovMask, app)
+      app.stage.addChild(fovMask)
+
+      sprite.mask = fovMask
+
       // Initial overlay draw
       redrawOverlays(reticle, vignette, app)
 
@@ -166,6 +181,7 @@ export default function PixiStage({ manifest }: Props) {
       const ro = new ResizeObserver(() => {
         if (readyRef.current) {
           redrawOverlays(reticle, vignette, app)
+          redrawFovMask(fovMask, app)
           fitSprite(sprite, app)
         }
       })
@@ -175,6 +191,7 @@ export default function PixiStage({ manifest }: Props) {
       spriteRef.current = sprite
       reticleRef.current = reticle
       vignetteRef.current = vignette
+      fovMaskRef.current = fovMask
       readyRef.current = true
 
       // Load the initial frame
@@ -189,6 +206,7 @@ export default function PixiStage({ manifest }: Props) {
       spriteRef.current = null
       reticleRef.current = null
       vignetteRef.current = null
+      fovMaskRef.current = null
       app.destroy(true, { children: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
