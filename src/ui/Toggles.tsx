@@ -2,9 +2,10 @@ import { useMicroscopeStore } from '../store/useMicroscopeStore'
 
 interface Props {
   onHelp: () => void
+  onBack: () => void
 }
 
-export default function Toggles({ onHelp }: Props) {
+export default function Toggles({ onHelp, onBack }: Props) {
   const showReticle = useMicroscopeStore((s) => s.showReticle)
   const showVignette = useMicroscopeStore((s) => s.showVignette)
   const toggleReticle = useMicroscopeStore((s) => s.toggleReticle)
@@ -12,6 +13,14 @@ export default function Toggles({ onHelp }: Props) {
 
   return (
     <div className="toggle-panel">
+      <button
+        className="toggle-btn"
+        onClick={onBack}
+        aria-label="Go back to outside microscope view"
+        title="Back to outside view"
+      >
+        ↩
+      </button>
       <button
         className={`toggle-btn ${showReticle ? 'active' : ''}`}
         onClick={toggleReticle}

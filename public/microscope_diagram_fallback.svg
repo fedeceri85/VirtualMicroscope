@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1000" width="1400" height="1000">
+  <rect width="1400" height="1000" fill="#10131a"/>
+  <rect x="360" y="790" width="680" height="100" rx="28" fill="#3b4350"/>
+  <path d="M500 790C470 620 540 470 670 390C770 328 875 336 960 410L915 460C840 402 775 398 702 450C612 514 570 624 590 790H500Z" fill="#485262"/>
+  <rect x="650" y="585" width="300" height="80" rx="14" fill="#5a6475"/>
+  <circle cx="760" cy="510" r="70" fill="#6f7888"/>
+  <rect x="705" y="250" width="110" height="240" rx="18" fill="#596273"/>
+  <rect x="620" y="175" width="280" height="78" rx="22" fill="#444c59"/>
+  <rect x="645" y="98" width="75" height="95" rx="18" fill="#535d6f"/>
+  <rect x="800" y="98" width="75" height="95" rx="18" fill="#535d6f"/>
+  <ellipse cx="682" cy="104" rx="38" ry="13" fill="#0f1218"/>
+  <ellipse cx="837" cy="104" rx="38" ry="13" fill="#0f1218"/>
+  <circle cx="585" cy="555" r="48" fill="#7e899c"/>
+  <text x="700" y="70" fill="#d4dae4" font-family="Arial, sans-serif" font-size="34" text-anchor="middle">Microscope Diagram</text>
+  <text x="700" y="115" fill="#aeb7c6" font-family="Arial, sans-serif" font-size="22" text-anchor="middle">Click oculars area to enter microscope view</text>
+</svg>
