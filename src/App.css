@@ -276,6 +276,9 @@ body,
   height: var(--knob-face-size);
   border-radius: 50%;
   cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
   background: radial-gradient(circle at 35% 32%, #4f4f4f 0%, #363636 48%, #242424 100%);
   border: 1px solid #555;
   box-shadow:
@@ -520,5 +523,31 @@ body,
 
   .control-group {
     padding: 0.26rem 0.44rem 0.3rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .controls-bar {
+    --knob-face-size: clamp(102px, 30vw, 126px);
+    --knob-block-size: calc(var(--knob-face-size) + 26px);
+    width: min(95vw, 560px);
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .control-group.mechanical {
+    flex: 1 1 calc(50% - 0.6rem);
+    min-width: 150px;
+  }
+
+  .control-group.pan-group {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .pan-toggle,
+  .pan-reset {
+    min-height: 42px;
+    font-size: 0.76rem;
   }
 }

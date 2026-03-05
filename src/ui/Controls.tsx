@@ -50,6 +50,7 @@ function RotaryKnob({
   }
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary) return
     e.preventDefault()
     const target = e.currentTarget
     target.setPointerCapture(e.pointerId)
@@ -63,10 +64,12 @@ function RotaryKnob({
       setIsDragging(false)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
     }
 
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
 
   const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
