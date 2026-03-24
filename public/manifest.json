@@ -27,6 +27,20 @@
         "zoomNames": [],
         "objectiveNames": []
       }
+    },
+    {
+      "id": "20260324-vmicroscope-test-2",
+      "name": "20260324 Vmicroscope Test 2",
+      "zoomLevels": 20,
+      "zSlices": 43,
+      "width": 512,
+      "height": 512,
+      "format": "webp",
+      "pathPattern": "assets/20260324-vmicroscope-test-2/zoom_{ZZ}/z_{FFF}.webp",
+      "labels": {
+        "zoomNames": [],
+        "objectiveNames": []
+      }
     }
   ]
 }
