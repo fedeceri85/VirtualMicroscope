@@ -5,8 +5,10 @@ Convert a real microscope dataset into WebP frames for the Virtual Microscope ap
 Expected input layout:
     datasets/<dataset_name>/
         <sample>-FieldSize<N>/
-            ChanA_001_001_<zzz>_<yyy>.tif   # data frames
+            ChanA_001_001_<zzz>_<yyy>.tif   # data frames (green)
+            ChanB_001_001_<zzz>_<yyy>.tif   # optional 2nd channel (magenta)
             ChanA_Preview.tif                # ignored
+            ChanB_Preview.tif                # ignored
             Experiment.xml                   # ignored
             ROIMask.raw                      # ignored
             ROIs.xaml                        # ignored
@@ -16,6 +18,9 @@ Expected input layout:
 Each FieldSize subfolder is one zoom level (larger FieldSize = more zoomed out).
 The zzz part of the filename is the Z-position index, yyy is the repeat index.
 All frames sharing the same zzz are averaged to produce one output image.
+
+Multi-channel: ChanA is rendered as green, ChanB (if present) as magenta (R+B).
+Channels are additively composited into a single RGB image.
 
 Output layout (multi-dataset):
     public/assets/<dataset_id>/zoom_00/z_000.webp
@@ -52,11 +57,14 @@ except ImportError:
 
 
 # Files and directories to ignore inside each zoom subfolder
-IGNORE_FILES = {"ChanA_Preview.tif", "Experiment.xml", "ROIMask.raw", "ROIs.xaml", "ROIs.xml"}
+IGNORE_FILES = {
+    "ChanA_Preview.tif", "ChanB_Preview.tif",
+    "Experiment.xml", "ROIMask.raw", "ROIs.xaml", "ROIs.xml",
+}
 IGNORE_DIRS = {"jpeg", "powerramp"}
 
-# Regex matching data TIF files: ChanA_001_001_<zpos>_<repeat>.tif
-DATA_TIF_RE = re.compile(r"^ChanA_\d+_\d+_(\d+)_(\d+)\.tif$")
+# Regex matching data TIF files: Chan{A|B}_001_001_<zpos>_<repeat>.tif
+DATA_TIF_RE = re.compile(r"^Chan([AB])_\d+_\d+_(\d+)_(\d+)\.tif$")
 
 
 def discover_zoom_folders(dataset_dir: Path) -> list[tuple[int, Path]]:
@@ -75,8 +83,9 @@ def discover_zoom_folders(dataset_dir: Path) -> list[tuple[int, Path]]:
     return folders
 
 
-def group_tifs_by_z(folder: Path) -> dict[int, list[Path]]:
-    """Group data TIF files by Z-position index. Returns {z_pos: [paths...]} sorted."""
+def group_tifs_by_z(folder: Path, channel: str = "A") -> dict[int, list[Path]]:
+    """Group data TIF files by Z-position index for a given channel.
+    Returns {z_pos: [paths...]} sorted."""
     groups: dict[int, list[Path]] = defaultdict(list)
     for f in folder.iterdir():
         if f.is_dir() and f.name in IGNORE_DIRS:
@@ -84,12 +93,24 @@ def group_tifs_by_z(folder: Path) -> dict[int, list[Path]]:
         if f.name in IGNORE_FILES:
             continue
         m = DATA_TIF_RE.match(f.name)
-        if m:
-            z_pos = int(m.group(1))
+        if m and m.group(1) == channel:
+            z_pos = int(m.group(2))
             groups[z_pos].append(f)
     for z_pos in groups:
         groups[z_pos].sort()
     return dict(sorted(groups.items()))
+
+
+def detect_channels(folder: Path) -> list[str]:
+    """Return sorted list of channels present in a folder (e.g. ['A'] or ['A','B'])."""
+    channels: set[str] = set()
+    for f in folder.iterdir():
+        if f.name in IGNORE_FILES:
+            continue
+        m = DATA_TIF_RE.match(f.name)
+        if m:
+            channels.add(m.group(1))
+    return sorted(channels)
 
 
 def average_frames(paths: list[Path]) -> np.ndarray:
@@ -109,21 +130,22 @@ def average_frames(paths: list[Path]) -> np.ndarray:
 
 def compute_global_range(
     zoom_folders: list[tuple[int, Path]],
+    channel: str,
     percentile_lo: float,
     percentile_hi: float,
 ) -> tuple[float, float]:
-    """Compute global normalization range across all averaged images."""
-    print("Computing global intensity range...")
+    """Compute global normalization range across all averaged images for one channel."""
+    print(f"Computing global intensity range for Chan{channel}...")
     all_values: list[float] = []
     for field_size, folder in zoom_folders:
-        groups = group_tifs_by_z(folder)
+        groups = group_tifs_by_z(folder, channel)
         for z_pos, paths in groups.items():
             avg = average_frames(paths)
             all_values.extend(avg.ravel()[::16].tolist())
     arr = np.array(all_values)
     lo = float(np.percentile(arr, percentile_lo))
     hi = float(np.percentile(arr, percentile_hi))
-    print(f"  Percentile range [{percentile_lo}, {percentile_hi}]: [{lo:.1f}, {hi:.1f}]")
+    print(f"  Chan{channel} percentile [{percentile_lo}, {percentile_hi}]: [{lo:.1f}, {hi:.1f}]")
     return lo, hi
 
 
@@ -137,12 +159,27 @@ def normalize_to_uint8(img: np.ndarray, lo: float, hi: float) -> np.ndarray:
     return scaled.astype(np.uint8)
 
 
-def colorize_green(gray: np.ndarray) -> Image.Image:
-    """Convert a uint8 grayscale array to a green-channel RGB PIL Image."""
+def colorize_green(gray: np.ndarray) -> np.ndarray:
+    """Convert a uint8 grayscale array to a green-channel RGB array."""
     h, w = gray.shape
     rgb = np.zeros((h, w, 3), dtype=np.uint8)
     rgb[:, :, 1] = gray
-    return Image.fromarray(rgb, "RGB")
+    return rgb
+
+
+def colorize_magenta(gray: np.ndarray) -> np.ndarray:
+    """Convert a uint8 grayscale array to a magenta (R+B) RGB array."""
+    h, w = gray.shape
+    rgb = np.zeros((h, w, 3), dtype=np.uint8)
+    rgb[:, :, 0] = gray  # Red
+    rgb[:, :, 2] = gray  # Blue
+    return rgb
+
+
+CHANNEL_COLORIZERS = {
+    "A": colorize_green,
+    "B": colorize_magenta,
+}
 
 
 def convert_dataset(
@@ -157,11 +194,17 @@ def convert_dataset(
     zoom_folders = discover_zoom_folders(dataset_dir)
     num_zooms = len(zoom_folders)
 
-    first_groups = group_tifs_by_z(zoom_folders[0][1])
+    # Detect channels from the first zoom folder
+    channels = detect_channels(zoom_folders[0][1])
+    if not channels:
+        sys.exit("No data TIF files found in the first zoom folder.")
+
+    first_groups = group_tifs_by_z(zoom_folders[0][1], channels[0])
     num_slices = len(first_groups)
     frames_per_z = len(next(iter(first_groups.values())))
 
     print(f"Dataset: {dataset_dir.name} (id: {dataset_id})")
+    print(f"  Channels: {', '.join(f'Chan{c}' for c in channels)}")
     print(f"  Zoom levels: {num_zooms}")
     print(f"  Z slices: {num_slices}")
     print(f"  Frames per Z position: {frames_per_z}")
@@ -170,7 +213,12 @@ def convert_dataset(
         print(f"    zoom_{i:02d} <- FieldSize{fs} ({p.name})")
     print()
 
-    lo, hi = compute_global_range(zoom_folders, percentile_lo, percentile_hi)
+    # Compute per-channel global normalization ranges
+    channel_ranges: dict[str, tuple[float, float]] = {}
+    for ch in channels:
+        channel_ranges[ch] = compute_global_range(
+            zoom_folders, ch, percentile_lo, percentile_hi
+        )
 
     # Output goes to <outdir>/<dataset_id>/zoom_XX/
     dataset_outdir = outdir / dataset_id
@@ -189,12 +237,33 @@ def convert_dataset(
         zoom_dir = dataset_outdir / f"zoom_{zoom_idx:02d}"
         zoom_dir.mkdir(parents=True, exist_ok=True)
 
-        groups = group_tifs_by_z(folder)
+        # Build per-channel Z groups for this folder
+        ch_groups: dict[str, dict[int, list[Path]]] = {}
+        for ch in channels:
+            ch_groups[ch] = group_tifs_by_z(folder, ch)
 
-        for slice_idx, (z_pos, paths) in enumerate(groups.items()):
-            avg = average_frames(paths)
-            gray8 = normalize_to_uint8(avg, lo, hi)
-            rgb_img = colorize_green(gray8)
+        # Use the first channel's Z positions as reference
+        ref_groups = ch_groups[channels[0]]
+
+        for slice_idx, (z_pos, _) in enumerate(ref_groups.items()):
+            # Average and colorize each channel, then composite
+            composite: np.ndarray | None = None
+            for ch in channels:
+                paths = ch_groups[ch].get(z_pos, [])
+                if not paths:
+                    continue
+                avg = average_frames(paths)
+                lo, hi = channel_ranges[ch]
+                gray8 = normalize_to_uint8(avg, lo, hi)
+                colorized = CHANNEL_COLORIZERS[ch](gray8)
+                if composite is None:
+                    composite = colorized.astype(np.uint16)
+                else:
+                    composite = composite + colorized.astype(np.uint16)
+
+            # Clamp to 255 after additive blending
+            composite = np.clip(composite, 0, 255).astype(np.uint8)
+            rgb_img = Image.fromarray(composite, "RGB")
 
             fpath = zoom_dir / f"z_{slice_idx:03d}.webp"
             rgb_img.save(fpath, "WEBP", quality=webp_quality)

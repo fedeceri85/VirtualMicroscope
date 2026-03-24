@@ -13,6 +13,20 @@
         "zoomNames": [],
         "objectiveNames": []
       }
+    },
+    {
+      "id": "20260324-vmicroscope-test-2colors",
+      "name": "20260324 Vmicroscope Test 2Colors",
+      "zoomLevels": 6,
+      "zSlices": 22,
+      "width": 512,
+      "height": 512,
+      "format": "webp",
+      "pathPattern": "assets/20260324-vmicroscope-test-2colors/zoom_{ZZ}/z_{FFF}.webp",
+      "labels": {
+        "zoomNames": [],
+        "objectiveNames": []
+      }
     }
   ]
 }
