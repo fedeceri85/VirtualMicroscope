@@ -1,6 +1,6 @@
 {
-  "zoomLevels": 50,
-  "zSlices": 50,
+  "zoomLevels": 11,
+  "zSlices": 19,
   "width": 512,
   "height": 512,
   "format": "webp",

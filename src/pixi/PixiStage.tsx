@@ -5,7 +5,7 @@ import { framePath, frameKey } from '../lib/path'
 import { TextureLRU, loadTexture } from '../lib/lru'
 import { prefetchNeighbours } from '../lib/prefetch'
 import { createReticle, drawReticle, createVignette, drawVignette, VIGNETTE_RADIUS_FACTOR } from './overlays'
-import { animateZoomTransition, animateFocusTransition } from './transitions'
+import { animateZoomCrossfade, animateFocusTransition } from './transitions'
 import type { Manifest } from '../lib/manifest'
 
 /* Shared texture cache (lives for the app lifetime) */
@@ -23,20 +23,30 @@ async function loadAndSwap(
   panY: number,
   prevZoom: number,
   manifest: Manifest,
-  sprite: Sprite,
+  incoming: Sprite,
+  outgoing: Sprite,
   app: Application,
 ) {
   const key = frameKey(zoom, focus)
+  const isZoomChange = zoom !== prevZoom
 
   const applyTexture = (tex: Texture) => {
-    sprite.texture = tex
-    fitSprite(sprite, app, panX, panY)
+    incoming.texture = tex
+    incoming.visible = true
+    fitSprite(incoming, app, panX, panY)
 
-    // Transition
-    if (zoom !== prevZoom) {
-      animateZoomTransition(sprite)
+    if (isZoomChange && outgoing.texture && outgoing.texture !== Texture.EMPTY) {
+      // Cross-fade with scale between old and new frame
+      outgoing.visible = true
+      const direction = zoom > prevZoom ? 1 : -1
+      animateZoomCrossfade(
+        incoming,
+        outgoing,
+        direction,
+      )
     } else {
-      animateFocusTransition(sprite)
+      incoming.alpha = 1
+      animateFocusTransition(incoming)
     }
   }
 
@@ -126,7 +136,10 @@ interface Props {
 export default function PixiStage({ manifest }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const appRef = useRef<Application | null>(null)
-  const spriteRef = useRef<Sprite | null>(null)
+  const spriteARef = useRef<Sprite | null>(null)
+  const spriteBRef = useRef<Sprite | null>(null)
+  /** Which sprite is the current "front" (incoming) one: 'A' or 'B' */
+  const frontRef = useRef<'A' | 'B'>('A')
   const reticleRef = useRef<Graphics | null>(null)
   const vignetteRef = useRef<Graphics | null>(null)
   const fovMaskRef = useRef<Graphics | null>(null)
@@ -161,9 +174,14 @@ export default function PixiStage({ manifest }: Props) {
 
       container.appendChild(app.canvas)
 
-      const sprite = new Sprite()
-      sprite.anchor.set(0.5)
-      app.stage.addChild(sprite)
+      const spriteA = new Sprite()
+      spriteA.anchor.set(0.5)
+      app.stage.addChild(spriteA)
+
+      const spriteB = new Sprite()
+      spriteB.anchor.set(0.5)
+      spriteB.visible = false
+      app.stage.addChild(spriteB)
 
       const reticle = createReticle()
       app.stage.addChild(reticle)
@@ -176,7 +194,8 @@ export default function PixiStage({ manifest }: Props) {
       redrawFovMask(fovMask, app)
       app.stage.addChild(fovMask)
 
-      sprite.mask = fovMask
+      spriteA.mask = fovMask
+      spriteB.mask = fovMask
 
       // Initial overlay draw
       redrawOverlays(reticle, vignette, app)
@@ -186,13 +205,15 @@ export default function PixiStage({ manifest }: Props) {
         if (readyRef.current) {
           redrawOverlays(reticle, vignette, app)
           redrawFovMask(fovMask, app)
-          fitSprite(sprite, app, useMicroscopeStore.getState().panX, useMicroscopeStore.getState().panY)
+          const front = frontRef.current === 'A' ? spriteA : spriteB
+          fitSprite(front, app, useMicroscopeStore.getState().panX, useMicroscopeStore.getState().panY)
         }
       })
       ro.observe(container)
 
       appRef.current = app
-      spriteRef.current = sprite
+      spriteARef.current = spriteA
+      spriteBRef.current = spriteB
       reticleRef.current = reticle
       vignetteRef.current = vignette
       fovMaskRef.current = fovMask
@@ -207,7 +228,8 @@ export default function PixiStage({ manifest }: Props) {
         useMicroscopeStore.getState().panY,
         z,
         manifestRef.current,
-        sprite,
+        spriteA,
+        spriteB,
         app,
       )
     })()
@@ -216,7 +238,8 @@ export default function PixiStage({ manifest }: Props) {
       cancelled = true
       readyRef.current = false
       appRef.current = null
-      spriteRef.current = null
+      spriteARef.current = null
+      spriteBRef.current = null
       reticleRef.current = null
       vignetteRef.current = null
       fovMaskRef.current = null
@@ -231,6 +254,16 @@ export default function PixiStage({ manifest }: Props) {
     const prevZoom = prevZoomRef.current
     prevZoomRef.current = zoomIndex
 
+    const isZoomChange = zoomIndex !== prevZoom
+
+    // Swap front/back roles on zoom change so the old frame is the "outgoing" sprite
+    if (isZoomChange) {
+      frontRef.current = frontRef.current === 'A' ? 'B' : 'A'
+    }
+
+    const incoming = frontRef.current === 'A' ? spriteARef.current! : spriteBRef.current!
+    const outgoing = frontRef.current === 'A' ? spriteBRef.current! : spriteARef.current!
+
     loadAndSwap(
       zoomIndex,
       focusIndex,
@@ -238,14 +271,16 @@ export default function PixiStage({ manifest }: Props) {
       panY,
       prevZoom,
       manifestRef.current,
-      spriteRef.current!,
+      incoming,
+      outgoing,
       appRef.current!,
     )
   }, [zoomIndex, focusIndex])
 
   useEffect(() => {
-    if (!readyRef.current || !spriteRef.current || !appRef.current) return
-    fitSprite(spriteRef.current, appRef.current, panX, panY)
+    if (!readyRef.current || !appRef.current) return
+    const front = frontRef.current === 'A' ? spriteARef.current : spriteBRef.current
+    if (front) fitSprite(front, appRef.current, panX, panY)
   }, [panX, panY])
 
   /* ---------- Toggle overlays ---------- */
