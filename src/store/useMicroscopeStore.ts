@@ -2,6 +2,8 @@ import { create } from 'zustand'
 
 interface MicroscopeState {
   /* ---- data ---- */
+  datasetIndex: number
+  datasetCount: number
   zoomIndex: number
   focusIndex: number
   zoomLevels: number
@@ -17,7 +19,9 @@ interface MicroscopeState {
   error: string | undefined
 
   /* ---- actions ---- */
-  init: (zoomLevels: number, zSlices: number) => void
+  init: (datasetCount: number, zoomLevels: number, zSlices: number) => void
+  setDataset: (delta: number) => void
+  switchDataset: (index: number, zoomLevels: number, zSlices: number) => void
   setZoom: (delta: number) => void
   setFocus: (delta: number) => void
   setZoomAbsolute: (index: number) => void
@@ -32,6 +36,8 @@ interface MicroscopeState {
 }
 
 export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
+  datasetIndex: 0,
+  datasetCount: 1,
   zoomIndex: 0,
   focusIndex: 0,
   zoomLevels: 1,
@@ -44,8 +50,17 @@ export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
   isLoading: false,
   error: undefined,
 
-  init: (zoomLevels, zSlices) =>
-    set({ zoomLevels, zSlices, zoomIndex: 0, focusIndex: 0, panX: 0, panY: 0, panEnabled: false }),
+  init: (datasetCount, zoomLevels, zSlices) =>
+    set({ datasetCount, zoomLevels, zSlices, datasetIndex: 0, zoomIndex: 0, focusIndex: 0, panX: 0, panY: 0, panEnabled: false }),
+
+  setDataset: (delta) => {
+    const { datasetIndex, datasetCount } = get()
+    const next = Math.max(0, Math.min(datasetCount - 1, datasetIndex + delta))
+    if (next !== datasetIndex) set({ datasetIndex: next })
+  },
+
+  switchDataset: (index, zoomLevels, zSlices) =>
+    set({ datasetIndex: index, zoomLevels, zSlices, zoomIndex: 0, focusIndex: 0, panX: 0, panY: 0, panEnabled: false }),
 
   setZoom: (delta) => {
     const { zoomIndex, zoomLevels } = get()

@@ -61,6 +61,11 @@ export class TextureLRU {
     this.cache.clear()
   }
 
+  /** Evict all entries (destroys textures) without destroying the cache itself. */
+  clear(): void {
+    this.destroy()
+  }
+
   get size(): number {
     return this.cache.size
   }

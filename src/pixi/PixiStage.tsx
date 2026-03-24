@@ -277,6 +277,26 @@ export default function PixiStage({ manifest }: Props) {
     )
   }, [zoomIndex, focusIndex])
 
+  /* ---------- React to dataset change ---------- */
+  useEffect(() => {
+    if (!readyRef.current) return
+    // Clear texture cache — old dataset's textures are no longer valid
+    textureCache.clear()
+
+    // Reset sprites
+    const spriteA = spriteARef.current!
+    const spriteB = spriteBRef.current!
+    spriteA.texture = Texture.EMPTY
+    spriteB.texture = Texture.EMPTY
+    spriteB.visible = false
+    frontRef.current = 'A'
+    prevZoomRef.current = 0
+
+    // Load initial frame of new dataset
+    const { zoomIndex: z, focusIndex: f, panX: px, panY: py } = useMicroscopeStore.getState()
+    loadAndSwap(z, f, px, py, z, manifestRef.current, spriteA, spriteB, appRef.current!)
+  }, [manifest.id])
+
   useEffect(() => {
     if (!readyRef.current || !appRef.current) return
     const front = frontRef.current === 'A' ? spriteARef.current : spriteBRef.current
