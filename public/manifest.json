@@ -15,28 +15,31 @@
       }
     },
     {
-      "id": "20260324-vmicroscope-test-2colors",
-      "name": "20260324 Vmicroscope Test 2Colors",
-      "zoomLevels": 6,
-      "zSlices": 22,
-      "width": 512,
-      "height": 512,
+      "id": "myo7a-ctbp2-apical-region",
+      "name": "Myo7a / CtBP2 Apical Region",
+      "renderMode": "single-image",
+      "zoomLevels": 18,
+      "zSlices": 89,
+      "width": 1400,
+      "height": 1400,
       "format": "webp",
-      "pathPattern": "assets/20260324-vmicroscope-test-2colors/zoom_{ZZ}/z_{FFF}.webp",
-      "labels": {
-        "zoomNames": [],
-        "objectiveNames": []
-      }
-    },
-    {
-      "id": "20260324-vmicroscope-test-2",
-      "name": "20260324 Vmicroscope Test 2",
-      "zoomLevels": 20,
-      "zSlices": 43,
-      "width": 512,
-      "height": 512,
-      "format": "webp",
-      "pathPattern": "assets/20260324-vmicroscope-test-2/zoom_{ZZ}/z_{FFF}.webp",
+      "pathPattern": "assets/myo7a-ctbp2-apical-region/zoom_{ZZ}/z_{FFF}.webp",
+      "zoomScale": {
+        "min": 1.0,
+        "max": 3.2
+      },
+      "channels": [
+        {
+          "index": 0,
+          "name": "Myo7a",
+          "color": "blue"
+        },
+        {
+          "index": 1,
+          "name": "CtBP2",
+          "color": "red"
+        }
+      ],
       "labels": {
         "zoomNames": [],
         "objectiveNames": []

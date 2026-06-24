@@ -1,5 +1,5 @@
 /**
- * Build the asset URL for a given (zoomIndex, focusIndex)
+ * Build the asset URL for a given source (zoomIndex, focusIndex)
  * using the pathPattern from the manifest.
  *
  * Tokens:
@@ -16,6 +16,6 @@ export function framePath(pathPattern: string, zoomIndex: number, focusIndex: nu
 /**
  * Convenience: build a unique cache key for a frame.
  */
-export function frameKey(zoomIndex: number, focusIndex: number): string {
-  return `${zoomIndex}:${focusIndex}`
+export function frameKey(datasetId: string, zoomIndex: number, focusIndex: number): string {
+  return `${datasetId}:${zoomIndex}:${focusIndex}`
 }

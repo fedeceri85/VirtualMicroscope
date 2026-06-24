@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Application, Graphics, Sprite, Texture } from 'pixi.js'
 import { useMicroscopeStore } from '../store/useMicroscopeStore'
 import { framePath, frameKey } from '../lib/path'
@@ -27,13 +27,16 @@ async function loadAndSwap(
   outgoing: Sprite,
   app: Application,
 ) {
-  const key = frameKey(zoom, focus)
+  const sourceZoom = sourceZoomFor(manifest, zoom)
+  const key = frameKey(manifest.id, sourceZoom, focus)
   const isZoomChange = zoom !== prevZoom
+  const renderScale = renderScaleForZoom(manifest, zoom)
+  const constrainPan = manifest.renderMode === 'single-image'
 
   const applyTexture = (tex: Texture) => {
     incoming.texture = tex
     incoming.visible = true
-    fitSprite(incoming, app, panX, panY)
+    fitSprite(incoming, app, panX, panY, renderScale, constrainPan)
 
     if (isZoomChange && outgoing.texture && outgoing.texture !== Texture.EMPTY) {
       // Cross-fade with scale between old and new frame
@@ -59,7 +62,7 @@ async function loadAndSwap(
   }
 
   /* 2. Slow path — fetch, decode, cache */
-  const url = framePath(manifest.pathPattern, zoom, focus)
+  const url = framePath(manifest.pathPattern, sourceZoom, focus)
   useMicroscopeStore.getState().setLoading(true)
   useMicroscopeStore.getState().setError(undefined)
 
@@ -88,15 +91,20 @@ function triggerPrefetch(zoom: number, focus: number, manifest: Manifest) {
   prefetchNeighbours(
     zoom,
     focus,
-    manifest.zoomLevels,
-    manifest.zSlices,
-    manifest.pathPattern,
+    manifest,
     textureCache,
   )
 }
 
 /** Scale + center the sprite to fit the application screen. */
-function fitSprite(sprite: Sprite, app: Application, panX: number = 0, panY: number = 0) {
+function fitSprite(
+  sprite: Sprite,
+  app: Application,
+  panX: number = 0,
+  panY: number = 0,
+  renderScale: number = 1,
+  constrainPan: boolean = false,
+) {
   const tex = sprite.texture
   if (!tex || tex === Texture.EMPTY) return
 
@@ -105,11 +113,37 @@ function fitSprite(sprite: Sprite, app: Application, panX: number = 0, panY: num
   const th = tex.height
   if (tw === 0 || th === 0) return
 
-  const scale = Math.min(cw / tw, ch / th)
+  const scale = Math.min(cw / tw, ch / th) * renderScale
   sprite.width = tw * scale
   sprite.height = th * scale
-  sprite.x = cw / 2 + panX
-  sprite.y = ch / 2 + panY
+
+  const fovDiameter = Math.min(cw, ch) * VIGNETTE_RADIUS_FACTOR * 2
+  const maxPanX = Math.max(0, (sprite.width - fovDiameter) / 2)
+  const maxPanY = Math.max(0, (sprite.height - fovDiameter) / 2)
+  const boundedPanX = constrainPan ? clamp(panX, -maxPanX, maxPanX) : panX
+  const boundedPanY = constrainPan ? clamp(panY, -maxPanY, maxPanY) : panY
+
+  sprite.x = cw / 2 + boundedPanX
+  sprite.y = ch / 2 + boundedPanY
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function sourceZoomFor(manifest: Manifest, zoomIndex: number): number {
+  return manifest.renderMode === 'single-image' ? 0 : zoomIndex
+}
+
+function renderScaleForZoom(manifest: Manifest, zoomIndex: number): number {
+  if (manifest.renderMode !== 'single-image') return 1
+
+  const min = manifest.zoomScale?.min ?? 1
+  const max = manifest.zoomScale?.max ?? 3
+  if (manifest.zoomLevels <= 1) return min
+
+  const t = zoomIndex / (manifest.zoomLevels - 1)
+  return min * Math.pow(max / min, t)
 }
 
 /** Redraw overlay graphics when canvas resizes */
@@ -145,16 +179,26 @@ export default function PixiStage({ manifest }: Props) {
   const fovMaskRef = useRef<Graphics | null>(null)
   const readyRef = useRef(false)
   const prevZoomRef = useRef(0)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    panX: number
+    panY: number
+  } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   const manifestRef = useRef(manifest)
   manifestRef.current = manifest
 
+  const setPan = useMicroscopeStore((s) => s.setPan)
   const zoomIndex = useMicroscopeStore((s) => s.zoomIndex)
   const focusIndex = useMicroscopeStore((s) => s.focusIndex)
   const showReticle = useMicroscopeStore((s) => s.showReticle)
   const showVignette = useMicroscopeStore((s) => s.showVignette)
   const panX = useMicroscopeStore((s) => s.panX)
   const panY = useMicroscopeStore((s) => s.panY)
+  const canDragPan = manifest.renderMode === 'single-image'
 
   /* ---------- Pixi init (runs once) ---------- */
   useEffect(() => {
@@ -206,7 +250,16 @@ export default function PixiStage({ manifest }: Props) {
           redrawOverlays(reticle, vignette, app)
           redrawFovMask(fovMask, app)
           const front = frontRef.current === 'A' ? spriteA : spriteB
-          fitSprite(front, app, useMicroscopeStore.getState().panX, useMicroscopeStore.getState().panY)
+          const state = useMicroscopeStore.getState()
+          const currentManifest = manifestRef.current
+          fitSprite(
+            front,
+            app,
+            state.panX,
+            state.panY,
+            renderScaleForZoom(currentManifest, state.zoomIndex),
+            currentManifest.renderMode === 'single-image',
+          )
         }
       })
       ro.observe(container)
@@ -300,8 +353,18 @@ export default function PixiStage({ manifest }: Props) {
   useEffect(() => {
     if (!readyRef.current || !appRef.current) return
     const front = frontRef.current === 'A' ? spriteARef.current : spriteBRef.current
-    if (front) fitSprite(front, appRef.current, panX, panY)
-  }, [panX, panY])
+    if (front) {
+      const currentManifest = manifestRef.current
+      fitSprite(
+        front,
+        appRef.current,
+        panX,
+        panY,
+        renderScaleForZoom(currentManifest, zoomIndex),
+        currentManifest.renderMode === 'single-image',
+      )
+    }
+  }, [panX, panY, zoomIndex])
 
   /* ---------- Toggle overlays ---------- */
   useEffect(() => {
@@ -312,10 +375,52 @@ export default function PixiStage({ manifest }: Props) {
     if (vignetteRef.current) vignetteRef.current.visible = showVignette
   }, [showVignette])
 
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!canDragPan || !e.isPrimary) return
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+
+    const state = useMicroscopeStore.getState()
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      panX: state.panX,
+      panY: state.panY,
+    }
+    setIsDragging(true)
+  }
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    e.preventDefault()
+    setPan(drag.panX + e.clientX - drag.startX, drag.panY + e.clientY - drag.startY)
+  }
+
+  const endPointerDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+    dragRef.current = null
+    setIsDragging(false)
+  }
+
   return (
     <div
       ref={containerRef}
-      style={{ width: '100%', height: '100%' }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPointerDrag}
+      onPointerCancel={endPointerDrag}
+      style={{
+        width: '100%',
+        height: '100%',
+        cursor: canDragPan ? (isDragging ? 'grabbing' : 'grab') : undefined,
+        touchAction: canDragPan ? 'none' : undefined,
+      }}
     />
   )
 }

@@ -1,9 +1,11 @@
 import { create } from 'zustand'
+import type { RenderMode } from '../lib/manifest'
 
 interface MicroscopeState {
   /* ---- data ---- */
   datasetIndex: number
   datasetCount: number
+  renderMode: RenderMode
   zoomIndex: number
   focusIndex: number
   zoomLevels: number
@@ -19,13 +21,14 @@ interface MicroscopeState {
   error: string | undefined
 
   /* ---- actions ---- */
-  init: (datasetCount: number, zoomLevels: number, zSlices: number) => void
+  init: (datasetCount: number, zoomLevels: number, zSlices: number, renderMode: RenderMode) => void
   setDataset: (delta: number) => void
-  switchDataset: (index: number, zoomLevels: number, zSlices: number) => void
+  switchDataset: (index: number, zoomLevels: number, zSlices: number, renderMode: RenderMode) => void
   setZoom: (delta: number) => void
   setFocus: (delta: number) => void
   setZoomAbsolute: (index: number) => void
   setFocusAbsolute: (index: number) => void
+  setPan: (x: number, y: number) => void
   nudgePan: (dx: number, dy: number) => void
   resetPan: () => void
   setPanEnabled: (enabled: boolean) => void
@@ -38,6 +41,7 @@ interface MicroscopeState {
 export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
   datasetIndex: 0,
   datasetCount: 1,
+  renderMode: 'frame-stack',
   zoomIndex: 0,
   focusIndex: 0,
   zoomLevels: 1,
@@ -50,8 +54,19 @@ export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
   isLoading: false,
   error: undefined,
 
-  init: (datasetCount, zoomLevels, zSlices) =>
-    set({ datasetCount, zoomLevels, zSlices, datasetIndex: 0, zoomIndex: 0, focusIndex: 0, panX: 0, panY: 0, panEnabled: false }),
+  init: (datasetCount, zoomLevels, zSlices, renderMode) =>
+    set({
+      datasetCount,
+      zoomLevels,
+      zSlices,
+      renderMode,
+      datasetIndex: 0,
+      zoomIndex: 0,
+      focusIndex: 0,
+      panX: 0,
+      panY: 0,
+      panEnabled: renderMode === 'single-image',
+    }),
 
   setDataset: (delta) => {
     const { datasetIndex, datasetCount } = get()
@@ -59,8 +74,18 @@ export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
     if (next !== datasetIndex) set({ datasetIndex: next })
   },
 
-  switchDataset: (index, zoomLevels, zSlices) =>
-    set({ datasetIndex: index, zoomLevels, zSlices, zoomIndex: 0, focusIndex: 0, panX: 0, panY: 0, panEnabled: false }),
+  switchDataset: (index, zoomLevels, zSlices, renderMode) =>
+    set({
+      datasetIndex: index,
+      zoomLevels,
+      zSlices,
+      renderMode,
+      zoomIndex: 0,
+      focusIndex: 0,
+      panX: 0,
+      panY: 0,
+      panEnabled: renderMode === 'single-image',
+    }),
 
   setZoom: (delta) => {
     const { zoomIndex, zoomLevels } = get()
@@ -84,9 +109,17 @@ export const useMicroscopeStore = create<MicroscopeState>()((set, get) => ({
     set({ focusIndex: Math.max(0, Math.min(zSlices - 1, index)) })
   },
 
+  setPan: (x, y) => {
+    const PAN_LIMIT = 4000
+    set({
+      panX: Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, x)),
+      panY: Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, y)),
+    })
+  },
+
   nudgePan: (dx, dy) => {
     const { panX, panY } = get()
-    const PAN_LIMIT = 180
+    const PAN_LIMIT = 4000
     set({
       panX: Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, panX + dx)),
       panY: Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, panY + dy)),

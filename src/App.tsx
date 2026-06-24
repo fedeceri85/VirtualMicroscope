@@ -28,7 +28,7 @@ function App() {
       .then((mm) => {
         setMultiManifest(mm)
         const first = mm.datasets[0]
-        init(mm.datasets.length, first.zoomLevels, first.zSlices)
+        init(mm.datasets.length, first.zoomLevels, first.zSlices, first.renderMode)
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : String(err))
@@ -40,7 +40,7 @@ function App() {
     if (!multiManifest) return
     const ds = multiManifest.datasets[datasetIndex]
     if (ds) {
-      switchDataset(datasetIndex, ds.zoomLevels, ds.zSlices)
+      switchDataset(datasetIndex, ds.zoomLevels, ds.zSlices, ds.renderMode)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetIndex])
