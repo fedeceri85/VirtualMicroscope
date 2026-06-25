@@ -37,7 +37,7 @@ Usage:
     conda run -n napari python scripts/convert_dataset.py datasets/my-dataset --percentile 0.1 99.9
     conda run -n napari python scripts/convert_dataset.py "datasets/TUJ1 Green Chat Red" \
       --id tuj1-green-chat-red --name "TUJ1 Green / ChAT Red" \
-      --normalize-scope zoom --channel-names TUJ1 ChAT --channel-colors green red
+      --normalize-scope zoom --downscale 2 --channel-names TUJ1 ChAT --channel-colors green red
 """
 
 from __future__ import annotations
@@ -150,6 +150,21 @@ def average_frames(paths: list[Path]) -> np.ndarray:
     return acc / count
 
 
+def binned_average(img: np.ndarray, factor: int) -> np.ndarray:
+    """Downscale a 2D image by averaging non-overlapping factor x factor blocks."""
+    if factor == 1:
+        return img
+
+    h, w = img.shape
+    if h % factor != 0 or w % factor != 0:
+        sys.exit(
+            f"Cannot downscale {w}x{h} by factor {factor}: "
+            "dimensions must be evenly divisible."
+        )
+
+    return img.reshape(h // factor, factor, w // factor, factor).mean(axis=(1, 3))
+
+
 def compute_intensity_range(
     zoom_folders: list[tuple[int, Path]],
     channel: str,
@@ -157,6 +172,7 @@ def compute_intensity_range(
     percentile_lo: float,
     percentile_hi: float,
     label: str,
+    downscale_factor: int,
 ) -> tuple[float, float]:
     """Compute global normalization range across all averaged images for one channel."""
     print(f"Computing {label} intensity range for Chan{channel}...")
@@ -166,6 +182,7 @@ def compute_intensity_range(
         for z_pos in z_positions:
             paths = groups[z_pos]
             avg = average_frames(paths)
+            avg = binned_average(avg, downscale_factor)
             samples.append(avg.ravel()[::64].astype(np.float32, copy=False))
     arr = np.concatenate(samples)
     lo = float(np.percentile(arr, percentile_lo))
@@ -307,6 +324,18 @@ def detect_image_size(
     return expected
 
 
+def output_size_for_downscale(width: int, height: int, downscale_factor: int) -> tuple[int, int]:
+    """Return output dimensions after integer binned downscaling."""
+    if downscale_factor < 1:
+        sys.exit("--downscale must be an integer >= 1")
+    if width % downscale_factor != 0 or height % downscale_factor != 0:
+        sys.exit(
+            f"Cannot downscale {width}x{height} by factor {downscale_factor}: "
+            "dimensions must be evenly divisible."
+        )
+    return width // downscale_factor, height // downscale_factor
+
+
 def resolve_channel_metadata(
     channels: list[str],
     channel_names: list[str] | None,
@@ -349,6 +378,7 @@ def convert_dataset(
     webp_quality: int,
     z_policy: str,
     normalize_scope: str,
+    downscale_factor: int,
     channel_names: list[str] | None,
     channel_colors: list[str] | None,
 ) -> tuple[int, int, int, int, list[str], list[dict[str, int | str]]]:
@@ -365,7 +395,8 @@ def convert_dataset(
     num_slices = len(z_positions)
     first_groups = group_tifs_by_z(zoom_folders[0][1], channels[0])
     frames_per_z = len(first_groups[z_positions[0]])
-    width, height = detect_image_size(zoom_folders, channels, z_positions)
+    source_width, source_height = detect_image_size(zoom_folders, channels, z_positions)
+    width, height = output_size_for_downscale(source_width, source_height, downscale_factor)
     colors_by_channel, channel_metadata = resolve_channel_metadata(
         channels, channel_names, channel_colors
     )
@@ -381,7 +412,13 @@ def convert_dataset(
     print(f"  Zoom levels: {num_zooms}")
     print(f"  Z slices: {num_slices}")
     print(f"  Frames per Z position: {frames_per_z}")
-    print(f"  Frame size: {width}x{height}")
+    if downscale_factor == 1:
+        print(f"  Frame size: {width}x{height}")
+    else:
+        print(
+            f"  Frame size: {width}x{height} "
+            f"(source {source_width}x{source_height}, {downscale_factor}x{downscale_factor} binning)"
+        )
     print(f"  Normalization scope: {normalize_scope}")
     print(f"  Zoom order (zoomed-out -> zoomed-in):")
     for i, (fs, p) in enumerate(zoom_folders):
@@ -399,6 +436,7 @@ def convert_dataset(
                 percentile_lo,
                 percentile_hi,
                 "global",
+                downscale_factor,
             )
             for zoom_idx in range(num_zooms):
                 channel_ranges[(zoom_idx, ch)] = global_range
@@ -413,6 +451,7 @@ def convert_dataset(
                     percentile_lo,
                     percentile_hi,
                     f"zoom_{zoom_idx:02d} FieldSize{field_size}",
+                    downscale_factor,
                 )
     else:
         sys.exit(f"Unsupported normalization scope: {normalize_scope}")
@@ -447,6 +486,7 @@ def convert_dataset(
                 if not paths:
                     sys.exit(f"Missing Chan{ch} z position {z_pos} in {folder}")
                 avg = average_frames(paths)
+                avg = binned_average(avg, downscale_factor)
                 lo, hi = channel_ranges[(zoom_idx, ch)]
                 gray8 = normalize_to_uint8(avg, lo, hi)
                 colorized = CHANNEL_COLORIZERS[colors_by_channel[ch]](gray8)
@@ -603,6 +643,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--downscale",
+        type=int,
+        default=1,
+        metavar="FACTOR",
+        help=(
+            "Integer binned-average downscale factor applied before normalization "
+            "and WebP export; e.g. 2 turns 1024x1024 into 512x512 (default: 1)"
+        ),
+    )
+    parser.add_argument(
         "--channel-names",
         nargs="+",
         default=None,
@@ -640,6 +690,7 @@ def main() -> None:
         webp_quality=args.quality,
         z_policy=args.z_policy,
         normalize_scope=args.normalize_scope,
+        downscale_factor=args.downscale,
         channel_names=args.channel_names,
         channel_colors=args.channel_colors,
     )
