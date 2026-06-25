@@ -21,6 +21,7 @@ export interface Manifest {
     min?: number
     max?: number
   }
+  appendedZoomStart?: number
   channels?: ChannelMetadata[]
   labels?: {
     zoomNames?: string[]
@@ -116,6 +117,20 @@ function validateDataset(data: unknown, index: number): Manifest {
     if (min !== undefined || max !== undefined) {
       manifest.zoomScale = { min, max }
     }
+  }
+
+  if (obj['appendedZoomStart'] !== undefined) {
+    if (
+      typeof obj['appendedZoomStart'] !== 'number' ||
+      !Number.isInteger(obj['appendedZoomStart']) ||
+      obj['appendedZoomStart'] <= 0 ||
+      obj['appendedZoomStart'] >= manifest.zoomLevels
+    ) {
+      throw new Error(
+        `Manifest: dataset[${index}].appendedZoomStart must be an integer between 1 and zoomLevels - 1`,
+      )
+    }
+    manifest.appendedZoomStart = obj['appendedZoomStart']
   }
 
   if (Array.isArray(obj['channels'])) {

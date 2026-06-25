@@ -20,7 +20,8 @@ Usage:
       --channel-names Myo7a CtBP2 \
       --colors blue red \
       --focus-step 2 \
-      --reverse-focus
+      --reverse-focus \
+      --append-multitiff datasets/Sem_rotated.tif --append-multitiff-label SEM
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ except ImportError:
     sys.exit("tifffile is required. Install it with: pip install tifffile")
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageSequence
 except ImportError:
     sys.exit("Pillow is required. Install it with: pip install Pillow")
 
@@ -160,6 +161,104 @@ def composite_channels(
     return np.clip(composite, 0, 255).astype(np.uint8)
 
 
+def image_to_uint8_rgb(
+    image: Image.Image,
+    percentile_lo: float,
+    percentile_hi: float,
+) -> np.ndarray:
+    arr = np.array(image)
+    preserve_uint8 = arr.dtype == np.uint8
+
+    if arr.ndim == 2:
+        if preserve_uint8:
+            gray = arr
+        else:
+            lo = float(np.percentile(arr, percentile_lo))
+            hi = float(np.percentile(arr, percentile_hi))
+            if hi <= lo:
+                hi = lo + 1.0
+            gray = normalize_to_uint8(arr, lo, hi)
+        return np.repeat(gray[:, :, np.newaxis], 3, axis=2)
+
+    if arr.ndim == 3:
+        rgb_source = arr[:, :, :3]
+        if preserve_uint8:
+            return rgb_source.astype(np.uint8, copy=False)
+
+        rgb = np.zeros(rgb_source.shape, dtype=np.uint8)
+        for channel_index in range(3):
+            channel = rgb_source[:, :, channel_index]
+            lo = float(np.percentile(channel, percentile_lo))
+            hi = float(np.percentile(channel, percentile_hi))
+            if hi <= lo:
+                hi = lo + 1.0
+            rgb[:, :, channel_index] = normalize_to_uint8(channel, lo, hi)
+        return rgb
+
+    sys.exit(f"Unsupported appended multitiff page shape: {arr.shape}")
+
+
+def validate_append_multitiff(
+    multitiff_path: Path | None,
+    expected_width: int,
+    expected_height: int,
+) -> int:
+    if multitiff_path is None:
+        return 0
+    if not multitiff_path.is_file():
+        sys.exit(f"Append multitiff not found: {multitiff_path}")
+
+    page_count = 0
+    with Image.open(multitiff_path) as img:
+        for page in ImageSequence.Iterator(img):
+            if (page.width, page.height) != (expected_width, expected_height):
+                sys.exit(
+                    f"Append multitiff page {page_count} is {page.width}x{page.height}, "
+                    f"expected {expected_width}x{expected_height}. "
+                    "convert_single_image_dataset.py does not rescale appended pages."
+                )
+            page_count += 1
+
+    if page_count == 0:
+        sys.exit(f"Append multitiff has no pages: {multitiff_path}")
+    return page_count
+
+
+def write_appended_multitiff(
+    multitiff_path: Path,
+    label: str,
+    start_zoom_idx: int,
+    z_slices: int,
+    dataset_outdir: Path,
+    percentile_lo: float,
+    percentile_hi: float,
+    webp_quality: int,
+) -> int:
+    written = 0
+    print(f"\nAppending fixed-focus multitiff: {multitiff_path}")
+
+    with Image.open(multitiff_path) as img:
+        for page_index, page in enumerate(ImageSequence.Iterator(img)):
+            zoom_idx = start_zoom_idx + page_index
+            zoom_dir = dataset_outdir / f"zoom_{zoom_idx:02d}"
+            zoom_dir.mkdir(parents=True, exist_ok=True)
+
+            rgb = image_to_uint8_rgb(page, percentile_lo, percentile_hi)
+            rgb_img = Image.fromarray(rgb, "RGB")
+
+            for focus_index in range(z_slices):
+                output_path = zoom_dir / f"z_{focus_index:03d}.webp"
+                rgb_img.save(output_path, "WEBP", quality=webp_quality)
+                written += 1
+
+            print(
+                f"    zoom_{zoom_idx:02d} <- {label} page {page_index + 1} "
+                f"duplicated across {z_slices} focus slices"
+            )
+
+    return written
+
+
 def convert_single_image_dataset(
     source_path: Path,
     outdir: Path,
@@ -171,7 +270,10 @@ def convert_single_image_dataset(
     colors: list[str],
     focus_step: int,
     reverse_focus: bool,
-) -> tuple[int, int, int, int]:
+    append_multitiff: Path | None,
+    append_multitiff_label: str | None,
+    appended_zoom_start: int,
+) -> tuple[int, int, int, int, int, list[str]]:
     dataset_outdir = outdir / dataset_id
     zoom_dir = dataset_outdir / "zoom_00"
 
@@ -187,6 +289,17 @@ def convert_single_image_dataset(
         height = get_axis_size(series, "Y")
         source_z_slices = get_axis_size(series, "Z")
         channels = get_axis_size(series, "C")
+        appended_page_count = validate_append_multitiff(append_multitiff, width, height)
+        append_label = (
+            append_multitiff_label
+            if append_multitiff_label is not None
+            else append_multitiff.stem if append_multitiff is not None
+            else "Append"
+        )
+        zoom_names = [f"Optical zoom {index + 1}" for index in range(appended_zoom_start)]
+        for page_index in range(appended_page_count):
+            zoom_names.append(f"{append_label} page {page_index + 1}")
+
         focus_indices = list(range(0, source_z_slices, focus_step))
         if reverse_focus:
             focus_indices.reverse()
@@ -217,6 +330,14 @@ def convert_single_image_dataset(
         print(f"  Focus order: {'reversed' if reverse_focus else 'source order'}")
         print(f"  Channels: {channels} ({', '.join(colors[:channels])})")
         print(f"  Size: {width} x {height}")
+        print(f"  Virtual optical zoom levels: {appended_zoom_start}")
+        if appended_page_count:
+            print(f"  Appended fixed-focus zoom levels: {appended_page_count}")
+            for page_index in range(appended_page_count):
+                print(
+                    f"    zoom_{appended_zoom_start + page_index:02d} <- "
+                    f"{append_label} page {page_index + 1} ({append_multitiff.name})"
+                )
         print()
 
         channel_ranges = compute_channel_ranges(
@@ -247,8 +368,23 @@ def convert_single_image_dataset(
                     f"(source z {source_z_index}) -> {output_path}"
                 )
 
-    print(f"\nDone - {z_slices} WebP files written to {zoom_dir}")
-    return width, height, z_slices, channels
+    appended_written = 0
+    if append_multitiff is not None:
+        appended_written = write_appended_multitiff(
+            multitiff_path=append_multitiff,
+            label=append_label,
+            start_zoom_idx=appended_zoom_start,
+            z_slices=z_slices,
+            dataset_outdir=dataset_outdir,
+            percentile_lo=percentile_lo,
+            percentile_hi=percentile_hi,
+            webp_quality=webp_quality,
+        )
+
+    total_written = z_slices + appended_written
+    print(f"\nDone - {total_written} WebP files written to {dataset_outdir}")
+    return width, height, z_slices, channels, appended_page_count, zoom_names
+
 
 
 def update_manifest(
@@ -263,6 +399,8 @@ def update_manifest(
     max_scale: float,
     colors: list[str],
     channel_names: list[str],
+    appended_zoom_start: int | None,
+    zoom_names: list[str],
 ) -> None:
     if manifest_path.exists():
         with open(manifest_path) as f:
@@ -288,6 +426,10 @@ def update_manifest(
     entry["format"] = "webp"
     entry["pathPattern"] = f"assets/{dataset_id}/zoom_{{ZZ}}/z_{{FFF}}.webp"
     entry["zoomScale"] = {"min": min_scale, "max": max_scale}
+    if appended_zoom_start is None:
+        entry.pop("appendedZoomStart", None)
+    else:
+        entry["appendedZoomStart"] = appended_zoom_start
     entry["channels"] = [
         {
             "index": index,
@@ -296,7 +438,10 @@ def update_manifest(
         }
         for index in range(len(colors))
     ]
-    entry.setdefault("labels", {"zoomNames": [], "objectiveNames": []})
+    labels = entry.get("labels") if isinstance(entry.get("labels"), dict) else {}
+    labels["zoomNames"] = zoom_names
+    labels.setdefault("objectiveNames", [])
+    entry["labels"] = labels
 
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
@@ -352,6 +497,21 @@ def main() -> None:
         help="Export selected source focus planes in reverse order",
     )
     parser.add_argument("--quality", type=int, default=88, help="WebP quality (default: 88)")
+    parser.add_argument(
+        "--append-multitiff",
+        type=Path,
+        default=None,
+        help=(
+            "Append a fixed-focus multipage TIFF after the virtual optical zoom levels. "
+            "Each page becomes one real zoom level and is duplicated across all focus indices."
+        ),
+    )
+    parser.add_argument(
+        "--append-multitiff-label",
+        type=str,
+        default=None,
+        help="Label prefix for appended multitiff zoom names (default: multitiff filename stem).",
+    )
     parser.add_argument("--no-manifest", action="store_true", help="Skip updating public/manifest.json")
     args = parser.parse_args()
 
@@ -372,8 +532,16 @@ def main() -> None:
     dataset_name = args.name or make_dataset_name(source_path.stem)
     outdir = args.outdir or (project_root / "public" / "assets")
     manifest_path = project_root / "public" / "manifest.json"
+    append_multitiff = args.append_multitiff.resolve() if args.append_multitiff else None
 
-    width, height, z_slices, channels = convert_single_image_dataset(
+    (
+        width,
+        height,
+        z_slices,
+        channels,
+        appended_page_count,
+        zoom_names,
+    ) = convert_single_image_dataset(
         source_path=source_path,
         outdir=outdir,
         dataset_id=dataset_id,
@@ -384,7 +552,12 @@ def main() -> None:
         colors=args.colors,
         focus_step=args.focus_step,
         reverse_focus=args.reverse_focus,
+        append_multitiff=append_multitiff,
+        append_multitiff_label=args.append_multitiff_label,
+        appended_zoom_start=args.zoom_levels,
     )
+
+    total_zoom_levels = args.zoom_levels + appended_page_count
 
     if not args.no_manifest:
         update_manifest(
@@ -394,11 +567,13 @@ def main() -> None:
             width=width,
             height=height,
             z_slices=z_slices,
-            zoom_levels=args.zoom_levels,
+            zoom_levels=total_zoom_levels,
             min_scale=args.min_scale,
             max_scale=args.max_scale,
             colors=args.colors[:channels],
             channel_names=args.channel_names,
+            appended_zoom_start=args.zoom_levels if appended_page_count else None,
+            zoom_names=zoom_names,
         )
 
 

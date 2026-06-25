@@ -18,10 +18,10 @@
       "id": "myo7a-ctbp2-apical-region",
       "name": "Myo7a / CtBP2 Apical Region",
       "renderMode": "single-image",
-      "zoomLevels": 18,
+      "zoomLevels": 22,
       "zSlices": 89,
-      "width": 1400,
-      "height": 1400,
+      "width": 1024,
+      "height": 1024,
       "format": "webp",
       "pathPattern": "assets/myo7a-ctbp2-apical-region/zoom_{ZZ}/z_{FFF}.webp",
       "zoomScale": {
@@ -41,15 +41,39 @@
         }
       ],
       "labels": {
-        "zoomNames": [],
+        "zoomNames": [
+          "Optical zoom 1",
+          "Optical zoom 2",
+          "Optical zoom 3",
+          "Optical zoom 4",
+          "Optical zoom 5",
+          "Optical zoom 6",
+          "Optical zoom 7",
+          "Optical zoom 8",
+          "Optical zoom 9",
+          "Optical zoom 10",
+          "Optical zoom 11",
+          "Optical zoom 12",
+          "Optical zoom 13",
+          "Optical zoom 14",
+          "Optical zoom 15",
+          "Optical zoom 16",
+          "Optical zoom 17",
+          "Optical zoom 18",
+          "SEM page 1",
+          "SEM page 2",
+          "SEM page 3",
+          "SEM page 4"
+        ],
         "objectiveNames": []
-      }
+      },
+      "appendedZoomStart": 18
     },
     {
       "id": "tuj1-green-chat-red",
       "name": "TUJ1 Green / ChAT Red",
       "renderMode": "frame-stack",
-      "zoomLevels": 25,
+      "zoomLevels": 21,
       "zSlices": 65,
       "width": 512,
       "height": 512,
@@ -89,11 +113,7 @@
           "Field size 64",
           "Field size 56",
           "Field size 45",
-          "Field size 34",
-          "SEM page 1",
-          "SEM page 2",
-          "SEM page 3",
-          "SEM page 4"
+          "Field size 34"
         ],
         "objectiveNames": []
       }

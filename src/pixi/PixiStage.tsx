@@ -31,12 +31,14 @@ async function loadAndSwap(
   const key = frameKey(manifest.id, sourceZoom, focus)
   const isZoomChange = zoom !== prevZoom
   const renderScale = renderScaleForZoom(manifest, zoom)
-  const constrainPan = manifest.renderMode === 'single-image'
+  const usePan = usesPanForZoom(manifest, zoom)
+  const renderPanX = usePan ? panX : 0
+  const renderPanY = usePan ? panY : 0
 
   const applyTexture = (tex: Texture) => {
     incoming.texture = tex
     incoming.visible = true
-    fitSprite(incoming, app, panX, panY, renderScale, constrainPan)
+    fitSprite(incoming, app, renderPanX, renderPanY, renderScale, usePan)
 
     if (isZoomChange && outgoing.texture && outgoing.texture !== Texture.EMPTY) {
       // Cross-fade with scale between old and new frame
@@ -132,18 +134,34 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function sourceZoomFor(manifest: Manifest, zoomIndex: number): number {
-  return manifest.renderMode === 'single-image' ? 0 : zoomIndex
+  if (manifest.renderMode !== 'single-image') return zoomIndex
+  return isAppendedZoom(manifest, zoomIndex) ? zoomIndex : 0
 }
 
 function renderScaleForZoom(manifest: Manifest, zoomIndex: number): number {
   if (manifest.renderMode !== 'single-image') return 1
+  if (isAppendedZoom(manifest, zoomIndex)) return 1
 
   const min = manifest.zoomScale?.min ?? 1
   const max = manifest.zoomScale?.max ?? 3
-  if (manifest.zoomLevels <= 1) return min
+  const virtualZoomLevels = manifest.appendedZoomStart ?? manifest.zoomLevels
+  if (virtualZoomLevels <= 1) return min
 
-  const t = zoomIndex / (manifest.zoomLevels - 1)
+  const clampedZoom = clamp(zoomIndex, 0, virtualZoomLevels - 1)
+  const t = clampedZoom / (virtualZoomLevels - 1)
   return min * Math.pow(max / min, t)
+}
+
+function isAppendedZoom(manifest: Manifest, zoomIndex: number): boolean {
+  return (
+    manifest.renderMode === 'single-image' &&
+    typeof manifest.appendedZoomStart === 'number' &&
+    zoomIndex >= manifest.appendedZoomStart
+  )
+}
+
+function usesPanForZoom(manifest: Manifest, zoomIndex: number): boolean {
+  return manifest.renderMode === 'single-image' && !isAppendedZoom(manifest, zoomIndex)
 }
 
 /** Redraw overlay graphics when canvas resizes */
@@ -198,7 +216,7 @@ export default function PixiStage({ manifest }: Props) {
   const showVignette = useMicroscopeStore((s) => s.showVignette)
   const panX = useMicroscopeStore((s) => s.panX)
   const panY = useMicroscopeStore((s) => s.panY)
-  const canDragPan = manifest.renderMode === 'single-image'
+  const canDragPan = usesPanForZoom(manifest, zoomIndex)
 
   /* ---------- Pixi init (runs once) ---------- */
   useEffect(() => {
@@ -252,13 +270,14 @@ export default function PixiStage({ manifest }: Props) {
           const front = frontRef.current === 'A' ? spriteA : spriteB
           const state = useMicroscopeStore.getState()
           const currentManifest = manifestRef.current
+          const usePan = usesPanForZoom(currentManifest, state.zoomIndex)
           fitSprite(
             front,
             app,
-            state.panX,
-            state.panY,
+            usePan ? state.panX : 0,
+            usePan ? state.panY : 0,
             renderScaleForZoom(currentManifest, state.zoomIndex),
-            currentManifest.renderMode === 'single-image',
+            usePan,
           )
         }
       })
@@ -355,13 +374,14 @@ export default function PixiStage({ manifest }: Props) {
     const front = frontRef.current === 'A' ? spriteARef.current : spriteBRef.current
     if (front) {
       const currentManifest = manifestRef.current
+      const usePan = usesPanForZoom(currentManifest, zoomIndex)
       fitSprite(
         front,
         appRef.current,
-        panX,
-        panY,
+        usePan ? panX : 0,
+        usePan ? panY : 0,
         renderScaleForZoom(currentManifest, zoomIndex),
-        currentManifest.renderMode === 'single-image',
+        usePan,
       )
     }
   }, [panX, panY, zoomIndex])

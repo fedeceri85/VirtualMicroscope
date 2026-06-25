@@ -18,7 +18,7 @@ export function prefetchNeighbours(
 ): void {
   const neighbours: [number, number][] = []
   const isSingleImage = manifest.renderMode === 'single-image'
-  const sourceZoomIndex = isSingleImage ? 0 : zoomIndex
+  const sourceZoomIndex = sourceZoomFor(manifest, zoomIndex)
 
   // Focus ± 1, ± 2 at same zoom
   for (const df of [-2, -1, 1, 2]) {
@@ -27,15 +27,20 @@ export function prefetchNeighbours(
   }
 
   // Zoom ± 1 at same focus
-  if (!isSingleImage) {
+  if (!isSingleImage || hasAppendedZooms(manifest)) {
     for (const dz of [-1, 1]) {
       const z = zoomIndex + dz
-      if (z >= 0 && z < manifest.zoomLevels) neighbours.push([z, focusIndex])
+      if (z >= 0 && z < manifest.zoomLevels) {
+        neighbours.push([sourceZoomFor(manifest, z), focusIndex])
+      }
     }
   }
 
   // Filter out already-cached entries
-  const toFetch = neighbours.filter(([z, f]) => !cache.has(frameKey(manifest.id, z, f)))
+  const uniqueNeighbours = Array.from(
+    new Map(neighbours.map(([z, f]) => [`${z}:${f}`, [z, f] as [number, number]])).values(),
+  )
+  const toFetch = uniqueNeighbours.filter(([z, f]) => !cache.has(frameKey(manifest.id, z, f)))
   if (toFetch.length === 0) return
 
   // Concurrency-limited fetch (max 4 in-flight)
@@ -63,4 +68,13 @@ export function prefetchNeighbours(
   for (let i = 0; i < Math.min(CONCURRENCY, toFetch.length); i++) {
     next()
   }
+}
+
+function sourceZoomFor(manifest: Manifest, zoomIndex: number): number {
+  if (manifest.renderMode !== 'single-image') return zoomIndex
+  return hasAppendedZooms(manifest) && zoomIndex >= manifest.appendedZoomStart! ? zoomIndex : 0
+}
+
+function hasAppendedZooms(manifest: Manifest): boolean {
+  return typeof manifest.appendedZoomStart === 'number'
 }
