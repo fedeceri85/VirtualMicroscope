@@ -38,6 +38,7 @@ Usage:
     conda run -n napari python scripts/convert_dataset.py "datasets/TUJ1 Green Chat Red" \
       --id tuj1-green-chat-red --name "TUJ1 Green / ChAT Red" \
       --normalize-scope zoom --downscale 2 --flip-horizontal-axis \
+      --append-multitiff datasets/Sem.tif --append-multitiff-label SEM \
       --channel-names TUJ1 ChAT --channel-colors green red
 """
 
@@ -57,7 +58,7 @@ except ImportError:
     sys.exit("numpy is required.  Install it with:  pip install numpy")
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageSequence
 except ImportError:
     sys.exit("Pillow is required.  Install it with:  pip install Pillow")
 
@@ -152,18 +153,27 @@ def average_frames(paths: list[Path]) -> np.ndarray:
 
 
 def binned_average(img: np.ndarray, factor: int) -> np.ndarray:
-    """Downscale a 2D image by averaging non-overlapping factor x factor blocks."""
+    """Downscale an image by averaging non-overlapping factor x factor blocks."""
     if factor == 1:
         return img
 
-    h, w = img.shape
+    h, w = img.shape[:2]
     if h % factor != 0 or w % factor != 0:
         sys.exit(
             f"Cannot downscale {w}x{h} by factor {factor}: "
             "dimensions must be evenly divisible."
         )
 
-    return img.reshape(h // factor, factor, w // factor, factor).mean(axis=(1, 3))
+    if img.ndim == 2:
+        return img.reshape(h // factor, factor, w // factor, factor).mean(axis=(1, 3))
+    if img.ndim == 3:
+        channels = img.shape[2]
+        return (
+            img.reshape(h // factor, factor, w // factor, factor, channels)
+            .mean(axis=(1, 3))
+        )
+
+    sys.exit(f"Unsupported image array shape for downscale: {img.shape}")
 
 
 def apply_axis_flips(
@@ -177,6 +187,45 @@ def apply_axis_flips(
     if flip_vertical_axis:
         img = np.fliplr(img)
     return img
+
+
+def array_to_uint8_rgb(
+    arr: np.ndarray,
+    preserve_uint8: bool,
+    percentile_lo: float,
+    percentile_hi: float,
+) -> np.ndarray:
+    """Convert a grayscale or RGB array to 8-bit RGB for WebP export."""
+    if arr.ndim == 2:
+        if preserve_uint8:
+            gray = np.clip(arr, 0, 255).astype(np.uint8)
+        else:
+            lo = float(np.percentile(arr, percentile_lo))
+            hi = float(np.percentile(arr, percentile_hi))
+            gray = normalize_to_uint8(arr, lo, hi)
+        return np.repeat(gray[:, :, np.newaxis], 3, axis=2)
+
+    if arr.ndim == 3:
+        if arr.shape[2] == 1:
+            return array_to_uint8_rgb(
+                arr[:, :, 0],
+                preserve_uint8,
+                percentile_lo,
+                percentile_hi,
+            )
+        rgb_source = arr[:, :, :3]
+        if preserve_uint8:
+            return np.clip(rgb_source, 0, 255).astype(np.uint8)
+
+        rgb = np.zeros(rgb_source.shape, dtype=np.uint8)
+        for channel_idx in range(3):
+            channel = rgb_source[:, :, channel_idx]
+            lo = float(np.percentile(channel, percentile_lo))
+            hi = float(np.percentile(channel, percentile_hi))
+            rgb[:, :, channel_idx] = normalize_to_uint8(channel, lo, hi)
+        return rgb
+
+    sys.exit(f"Unsupported multitiff page shape: {arr.shape}")
 
 
 def compute_intensity_range(
@@ -350,6 +399,99 @@ def output_size_for_downscale(width: int, height: int, downscale_factor: int) ->
     return width // downscale_factor, height // downscale_factor
 
 
+def validate_append_multitiff(
+    multitiff_path: Path | None,
+    expected_width: int,
+    expected_height: int,
+    downscale_factor: int,
+) -> int:
+    """Return page count for an appended fixed-focus multitiff, validating dimensions."""
+    if multitiff_path is None:
+        return 0
+    if not multitiff_path.is_file():
+        sys.exit(f"Append multitiff not found: {multitiff_path}")
+
+    count = 0
+    with Image.open(multitiff_path) as img:
+        for page in ImageSequence.Iterator(img):
+            out_width, out_height = output_size_for_downscale(
+                page.width,
+                page.height,
+                downscale_factor,
+            )
+            if (out_width, out_height) != (expected_width, expected_height):
+                sys.exit(
+                    f"Append multitiff page {count} outputs {out_width}x{out_height}, "
+                    f"expected {expected_width}x{expected_height}."
+                )
+            count += 1
+
+    if count == 0:
+        sys.exit(f"Append multitiff has no pages: {multitiff_path}")
+    return count
+
+
+def write_appended_multitiff(
+    multitiff_path: Path,
+    label: str,
+    start_zoom_idx: int,
+    num_slices: int,
+    output_width: int,
+    output_height: int,
+    dataset_outdir: Path,
+    downscale_factor: int,
+    flip_horizontal_axis: bool,
+    flip_vertical_axis: bool,
+    percentile_lo: float,
+    percentile_hi: float,
+    webp_quality: int,
+    generated: int,
+    total_frames: int,
+) -> int:
+    """Append fixed-focus multitiff pages as extra zoom levels.
+
+    Each page is one additional zoom level. Because the app expects a rectangular
+    zoom/focus grid, the fixed-focus page is duplicated across every focus index.
+    """
+    print(f"\nAppending fixed-focus multitiff: {multitiff_path}")
+
+    with Image.open(multitiff_path) as img:
+        for page_idx, page in enumerate(ImageSequence.Iterator(img)):
+            zoom_idx = start_zoom_idx + page_idx
+            zoom_dir = dataset_outdir / f"zoom_{zoom_idx:02d}"
+            zoom_dir.mkdir(parents=True, exist_ok=True)
+
+            source_arr = np.array(page)
+            preserve_uint8 = source_arr.dtype == np.uint8
+            arr = np.array(source_arr, dtype=np.float64)
+            arr = binned_average(arr, downscale_factor)
+            arr = apply_axis_flips(arr, flip_horizontal_axis, flip_vertical_axis)
+
+            rgb = array_to_uint8_rgb(arr, preserve_uint8, percentile_lo, percentile_hi)
+            if rgb.shape[:2] != (output_height, output_width):
+                sys.exit(
+                    f"Append multitiff page {page_idx} rendered as "
+                    f"{rgb.shape[1]}x{rgb.shape[0]}, expected {output_width}x{output_height}."
+                )
+
+            rgb_img = Image.fromarray(rgb, "RGB")
+            for slice_idx in range(num_slices):
+                fpath = zoom_dir / f"z_{slice_idx:03d}.webp"
+                rgb_img.save(fpath, "WEBP", quality=webp_quality)
+
+                generated += 1
+                if generated % 5 == 0 or generated == total_frames:
+                    pct = generated / total_frames * 100
+                    print(f"  [{pct:5.1f}%] {generated}/{total_frames}  ->  {fpath}")
+
+            print(
+                f"    zoom_{zoom_idx:02d} <- {label} page {page_idx + 1} "
+                f"duplicated across {num_slices} focus slices"
+            )
+
+    return generated
+
+
 def resolve_channel_metadata(
     channels: list[str],
     channel_names: list[str] | None,
@@ -395,6 +537,8 @@ def convert_dataset(
     downscale_factor: int,
     flip_horizontal_axis: bool,
     flip_vertical_axis: bool,
+    append_multitiff: Path | None,
+    append_multitiff_label: str | None,
     channel_names: list[str] | None,
     channel_colors: list[str] | None,
 ) -> tuple[int, int, int, int, list[str], list[dict[str, int | str]]]:
@@ -413,10 +557,25 @@ def convert_dataset(
     frames_per_z = len(first_groups[z_positions[0]])
     source_width, source_height = detect_image_size(zoom_folders, channels, z_positions)
     width, height = output_size_for_downscale(source_width, source_height, downscale_factor)
+    appended_page_count = validate_append_multitiff(
+        append_multitiff,
+        width,
+        height,
+        downscale_factor,
+    )
     colors_by_channel, channel_metadata = resolve_channel_metadata(
         channels, channel_names, channel_colors
     )
     zoom_names = [f"Field size {field_size}" for field_size, _ in zoom_folders]
+    append_label = (
+        append_multitiff_label
+        if append_multitiff_label is not None
+        else append_multitiff.stem if append_multitiff is not None
+        else "Append"
+    )
+    for page_idx in range(appended_page_count):
+        zoom_names.append(f"{append_label} page {page_idx + 1}")
+    total_zooms = num_zooms + appended_page_count
 
     print(f"Dataset: {dataset_dir.name} (id: {dataset_id})")
     print(
@@ -425,7 +584,10 @@ def convert_dataset(
             f"Chan{ch} ({colors_by_channel[ch]})" for ch in channels
         )
     )
-    print(f"  Zoom levels: {num_zooms}")
+    print(f"  Zoom levels: {total_zooms}")
+    if appended_page_count:
+        print(f"  Base fluorescence zoom levels: {num_zooms}")
+        print(f"  Appended fixed-focus zoom levels: {appended_page_count}")
     print(f"  Z slices: {num_slices}")
     print(f"  Frames per Z position: {frames_per_z}")
     if downscale_factor == 1:
@@ -446,6 +608,12 @@ def convert_dataset(
     print(f"  Zoom order (zoomed-out -> zoomed-in):")
     for i, (fs, p) in enumerate(zoom_folders):
         print(f"    zoom_{i:02d} <- FieldSize{fs} ({p.name})")
+    if append_multitiff is not None:
+        for page_idx in range(appended_page_count):
+            print(
+                f"    zoom_{num_zooms + page_idx:02d} <- "
+                f"{append_label} page {page_idx + 1} ({append_multitiff.name})"
+            )
     print()
 
     # Compute per-channel normalization ranges.
@@ -489,7 +657,7 @@ def convert_dataset(
                 shutil.rmtree(entry)
         print(f"Cleaned existing zoom_* directories in {dataset_outdir}\n")
 
-    total_frames = num_zooms * num_slices
+    total_frames = total_zooms * num_slices
     generated = 0
 
     for zoom_idx, (field_size, folder) in enumerate(zoom_folders):
@@ -533,8 +701,27 @@ def convert_dataset(
                 pct = generated / total_frames * 100
                 print(f"  [{pct:5.1f}%] {generated}/{total_frames}  ->  {fpath}")
 
+    if append_multitiff is not None:
+        generated = write_appended_multitiff(
+            append_multitiff,
+            append_label,
+            num_zooms,
+            num_slices,
+            width,
+            height,
+            dataset_outdir,
+            downscale_factor,
+            flip_horizontal_axis,
+            flip_vertical_axis,
+            percentile_lo,
+            percentile_hi,
+            webp_quality,
+            generated,
+            total_frames,
+        )
+
     print(f"\nDone - {generated} frames written to {dataset_outdir}")
-    return num_zooms, num_slices, width, height, zoom_names, channel_metadata
+    return total_zooms, num_slices, width, height, zoom_names, channel_metadata
 
 
 def make_dataset_name(dataset_dir_name: str) -> str:
@@ -691,6 +878,22 @@ def main() -> None:
         help="Flip across the vertical axis, swapping left and right.",
     )
     parser.add_argument(
+        "--append-multitiff",
+        type=Path,
+        default=None,
+        help=(
+            "Append a fixed-focus multipage TIFF after the discovered zoom folders. "
+            "Each page becomes one additional zoom level and is duplicated across "
+            "all focus indices."
+        ),
+    )
+    parser.add_argument(
+        "--append-multitiff-label",
+        type=str,
+        default=None,
+        help="Label prefix for appended multitiff zoom names (default: multitiff filename stem).",
+    )
+    parser.add_argument(
         "--channel-names",
         nargs="+",
         default=None,
@@ -718,6 +921,7 @@ def main() -> None:
 
     dataset_id = args.id or dataset_dir.name
     dataset_name = args.name or make_dataset_name(dataset_dir.name)
+    append_multitiff = args.append_multitiff.resolve() if args.append_multitiff else None
 
     num_zooms, num_slices, width, height, zoom_names, channel_metadata = convert_dataset(
         dataset_dir=dataset_dir,
@@ -731,6 +935,8 @@ def main() -> None:
         downscale_factor=args.downscale,
         flip_horizontal_axis=args.flip_horizontal_axis,
         flip_vertical_axis=args.flip_vertical_axis,
+        append_multitiff=append_multitiff,
+        append_multitiff_label=args.append_multitiff_label,
         channel_names=args.channel_names,
         channel_colors=args.channel_colors,
     )
