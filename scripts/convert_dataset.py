@@ -37,7 +37,8 @@ Usage:
     conda run -n napari python scripts/convert_dataset.py datasets/my-dataset --percentile 0.1 99.9
     conda run -n napari python scripts/convert_dataset.py "datasets/TUJ1 Green Chat Red" \
       --id tuj1-green-chat-red --name "TUJ1 Green / ChAT Red" \
-      --normalize-scope zoom --downscale 2 --channel-names TUJ1 ChAT --channel-colors green red
+      --normalize-scope zoom --downscale 2 --flip-horizontal-axis \
+      --channel-names TUJ1 ChAT --channel-colors green red
 """
 
 from __future__ import annotations
@@ -163,6 +164,19 @@ def binned_average(img: np.ndarray, factor: int) -> np.ndarray:
         )
 
     return img.reshape(h // factor, factor, w // factor, factor).mean(axis=(1, 3))
+
+
+def apply_axis_flips(
+    img: np.ndarray,
+    flip_horizontal_axis: bool,
+    flip_vertical_axis: bool,
+) -> np.ndarray:
+    """Flip a 2D image across requested axes."""
+    if flip_horizontal_axis:
+        img = np.flipud(img)
+    if flip_vertical_axis:
+        img = np.fliplr(img)
+    return img
 
 
 def compute_intensity_range(
@@ -379,6 +393,8 @@ def convert_dataset(
     z_policy: str,
     normalize_scope: str,
     downscale_factor: int,
+    flip_horizontal_axis: bool,
+    flip_vertical_axis: bool,
     channel_names: list[str] | None,
     channel_colors: list[str] | None,
 ) -> tuple[int, int, int, int, list[str], list[dict[str, int | str]]]:
@@ -419,6 +435,13 @@ def convert_dataset(
             f"  Frame size: {width}x{height} "
             f"(source {source_width}x{source_height}, {downscale_factor}x{downscale_factor} binning)"
         )
+    if flip_horizontal_axis or flip_vertical_axis:
+        flips = []
+        if flip_horizontal_axis:
+            flips.append("horizontal axis (top-bottom)")
+        if flip_vertical_axis:
+            flips.append("vertical axis (left-right)")
+        print(f"  Flips: {', '.join(flips)}")
     print(f"  Normalization scope: {normalize_scope}")
     print(f"  Zoom order (zoomed-out -> zoomed-in):")
     for i, (fs, p) in enumerate(zoom_folders):
@@ -487,6 +510,7 @@ def convert_dataset(
                     sys.exit(f"Missing Chan{ch} z position {z_pos} in {folder}")
                 avg = average_frames(paths)
                 avg = binned_average(avg, downscale_factor)
+                avg = apply_axis_flips(avg, flip_horizontal_axis, flip_vertical_axis)
                 lo, hi = channel_ranges[(zoom_idx, ch)]
                 gray8 = normalize_to_uint8(avg, lo, hi)
                 colorized = CHANNEL_COLORIZERS[colors_by_channel[ch]](gray8)
@@ -653,6 +677,20 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--flip-horizontal-axis",
+        "--flip-top-bottom",
+        dest="flip_horizontal_axis",
+        action="store_true",
+        help="Flip across the horizontal axis, swapping top and bottom.",
+    )
+    parser.add_argument(
+        "--flip-vertical-axis",
+        "--flip-left-right",
+        dest="flip_vertical_axis",
+        action="store_true",
+        help="Flip across the vertical axis, swapping left and right.",
+    )
+    parser.add_argument(
         "--channel-names",
         nargs="+",
         default=None,
@@ -691,6 +729,8 @@ def main() -> None:
         z_policy=args.z_policy,
         normalize_scope=args.normalize_scope,
         downscale_factor=args.downscale,
+        flip_horizontal_axis=args.flip_horizontal_axis,
+        flip_vertical_axis=args.flip_vertical_axis,
         channel_names=args.channel_names,
         channel_colors=args.channel_colors,
     )
