@@ -51,8 +51,8 @@
       "renderMode": "frame-stack",
       "zoomLevels": 25,
       "zSlices": 65,
-      "width": 1024,
-      "height": 1024,
+      "width": 512,
+      "height": 512,
       "format": "webp",
       "pathPattern": "assets/tuj1-green-chat-red/zoom_{ZZ}/z_{FFF}.webp",
       "channels": [
