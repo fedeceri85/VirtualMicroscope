@@ -44,6 +44,59 @@
         "zoomNames": [],
         "objectiveNames": []
       }
+    },
+    {
+      "id": "tuj1-green-chat-red",
+      "name": "TUJ1 Green / ChAT Red",
+      "renderMode": "frame-stack",
+      "zoomLevels": 25,
+      "zSlices": 65,
+      "width": 1024,
+      "height": 1024,
+      "format": "webp",
+      "pathPattern": "assets/tuj1-green-chat-red/zoom_{ZZ}/z_{FFF}.webp",
+      "channels": [
+        {
+          "index": 0,
+          "name": "TUJ1",
+          "color": "green"
+        },
+        {
+          "index": 1,
+          "name": "ChAT",
+          "color": "red"
+        }
+      ],
+      "labels": {
+        "zoomNames": [
+          "Field size 255",
+          "Field size 250",
+          "Field size 246",
+          "Field size 242",
+          "Field size 237",
+          "Field size 233",
+          "Field size 227",
+          "Field size 220",
+          "Field size 213",
+          "Field size 205",
+          "Field size 194",
+          "Field size 171",
+          "Field size 159",
+          "Field size 144",
+          "Field size 128",
+          "Field size 111",
+          "Field size 91",
+          "Field size 64",
+          "Field size 56",
+          "Field size 45",
+          "Field size 34",
+          "Field size 24",
+          "Field size 17",
+          "Field size 8",
+          "Field size 5"
+        ],
+        "objectiveNames": []
+      }
     }
   ]
 }
